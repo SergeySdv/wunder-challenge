@@ -1,0 +1,13 @@
+# Python / environment
+__pycache__/
+.venv/
+*.pyc
+
+# Competition artifacts
+*.zip
+
+# Large data / model directories (kept out of git)
+competition_package/datasets/
+competition_package/models/
+competition_package/catboost_info/
+
