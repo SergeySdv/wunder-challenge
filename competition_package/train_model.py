@@ -1,5 +1,5 @@
 import os
-from typing import Tuple, List, Set
+from typing import Tuple, List, Set, Dict, Optional
 
 import numpy as np
 import pandas as pd
@@ -15,12 +15,112 @@ BATCH_SIZE = 1024
 LR = 1e-3
 WEIGHTS_DIR = "models"
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Optional: precomputed catch22 features per sequence (offline lab).
+# If `datasets/catch22_per_seq.npz` exists, we can load it and build a mapping:
+#   seq_ix -> flattened catch22 feature vector.
+# For experiments where we only want to keep the most useful catch22
+# statistics, we select a subset by name instead of all 22.
+_CATCH22_PATH = os.path.join(BASE_DIR, "datasets", "catch22_per_seq.npz")
+_SEQ_TO_CATCH22: Optional[Dict[int, np.ndarray]] = None
+
+if os.path.exists(_CATCH22_PATH):
+    _catch22_npz = np.load(_CATCH22_PATH, allow_pickle=True)
+    _catch22_seq_ids = _catch22_npz["seq_ids"]
+    _catch22_values = _catch22_npz["catch22_values"]  # (n_seqs, n_dims, 22)
+    _catch22_names = _catch22_npz["catch22_names"].tolist()
+
+    # Subset of catch22 statistics that were most important in
+    # CatBoost feature-importance analysis. We keep only these for
+    # lab experiments to reduce dimensionality.
+    _SELECTED_CATCH22_NAMES = [
+        "SP_Summaries_welch_rect_area_5_1",
+        "SP_Summaries_welch_rect_centroid",
+        "CO_f1ecac",
+        "CO_FirstMin_ac",
+        "FC_LocalSimple_mean1_tauresrat",
+        "FC_LocalSimple_mean3_stderr",
+        "CO_trev_1_num",
+        "SB_BinaryStats_mean_longstretch1",
+        "CO_HistogramAMI_even_2_5",
+    ]
+
+    _name_to_idx = {name: i for i, name in enumerate(_catch22_names)}
+    _selected_indices = [
+        _name_to_idx[name]
+        for name in _SELECTED_CATCH22_NAMES
+        if name in _name_to_idx
+    ]
+
+    if not _selected_indices:
+        # Fallback: if names do not match for some reason, keep all stats.
+        _selected_indices = list(range(_catch22_values.shape[2]))
+
+    _catch22_subset = _catch22_values[:, :, _selected_indices]  # (n_seqs, n_dims, k)
+    _catch22_flat = _catch22_subset.reshape(_catch22_subset.shape[0], -1).astype(
+        np.float32
+    )
+    _SEQ_TO_CATCH22 = {
+        int(seq_ix): _catch22_flat[i]
+        for i, seq_ix in enumerate(_catch22_seq_ids)
+    }
+
 
 def load_dataset(dataset_path: str) -> pd.DataFrame:
     """Load and sort the competition dataset."""
     df = pd.read_parquet(dataset_path)
     df = df.sort_values(["seq_ix", "step_in_seq"]).reset_index(drop=True)
     return df
+
+
+def _compute_lag1_autocorr(lag_slice: np.ndarray) -> np.ndarray:
+    """
+    Compute a simple lag-1 autocorrelation estimate for each feature
+    over the lag window.
+
+    Parameters
+    ----------
+    lag_slice : np.ndarray
+        Array of shape (n_lags, dim) with recent states.
+
+    Returns
+    -------
+    ac : np.ndarray
+        Array of shape (dim,) with lag-1 autocorrelation estimates
+        in [-1, 1]. If variance is (near) zero for a feature, the
+        corresponding value is set close to 0.
+    """
+    # Use pairs (x_t, x_{t-1}) for t = 1..n_lags-1
+    x = lag_slice[:-1, :]
+    y = lag_slice[1:, :]
+
+    x_mean = x.mean(axis=0)
+    y_mean = y.mean(axis=0)
+
+    x_center = x - x_mean
+    y_center = y - y_mean
+
+    num = (x_center * y_center).mean(axis=0)
+    denom = np.sqrt((x_center**2).mean(axis=0) * (y_center**2).mean(axis=0)) + 1e-8
+
+    ac = num / denom
+    return ac.astype(np.float32)
+
+
+def _compute_frac_above_mean(
+    lag_slice: np.ndarray, mean_last: np.ndarray
+) -> np.ndarray:
+    """
+    Compute, for each feature, the fraction of values in the lag window
+    that are above the window mean.
+
+    This acts as a simple persistence / imbalance statistic (inspired
+    by SB_BinaryStats_mean_longstretch1).
+    """
+    above = lag_slice > mean_last[None, :]
+    frac = above.mean(axis=0)
+    return frac.astype(np.float32)
 
 
 def split_by_seq(
@@ -52,6 +152,7 @@ def build_supervised_dataset(
     df: pd.DataFrame,
     n_lags: int = N_LAGS_DEFAULT,
     add_step_feature: bool = True,
+    use_catch22: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray, pd.DataFrame, List[str]]:
     """
     Build a supervised learning dataset from the raw table.
@@ -63,7 +164,7 @@ def build_supervised_dataset(
 
     we create:
       - X_t: concatenation of the last `n_lags` state vectors up to step t,
-             optionally plus a simple normalized step feature.
+             optional lag-based stats and optional precomputed per-sequence features.
       - y_t: the next state vector at step t+1.
 
     Returns
@@ -94,6 +195,12 @@ def build_supervised_dataset(
         steps = df_seq["step_in_seq"].values
         need_pred = df_seq["need_prediction"].values
 
+        # Optional catch22 vector for this sequence (same for all samples in seq).
+        # Only used when explicitly requested via use_catch22=True.
+        catch22_vec: Optional[np.ndarray] = None
+        if use_catch22 and _SEQ_TO_CATCH22 is not None:
+            catch22_vec = _SEQ_TO_CATCH22.get(int(seq_ix))
+
         T = len(df_seq)
         # iterate over indices 0..T-2, since we always use next step as target
         for idx in range(T - 1):
@@ -121,10 +228,20 @@ def build_supervised_dataset(
             mean_last = lag_slice.mean(axis=0).astype(np.float32)  # (dim,)
             std_last = lag_slice.std(axis=0).astype(np.float32)  # (dim,)
 
-            features = [lag_flat, delta_flat, mean_last, std_last]
+            # Streaming-safe analogs inspired by catch22:
+            # - lag-1 autocorrelation estimate per feature
+            # - fraction of window values above the mean (persistence)
+            ac_lag1 = _compute_lag1_autocorr(lag_slice)  # (dim,)
+            frac_above = _compute_frac_above_mean(lag_slice, mean_last)  # (dim,)
+
+            features = [lag_flat, delta_flat, mean_last, std_last, ac_lag1, frac_above]
             if add_step_feature:
                 # step position as a simple normalized scalar
                 features.append(np.array([current_step / 1000.0], dtype=np.float32))
+
+            # Optionally append precomputed per-sequence catch22 features
+            if catch22_vec is not None:
+                features.append(catch22_vec.astype(np.float32))
 
             X_list.append(np.concatenate(features, axis=0))
 

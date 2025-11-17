@@ -100,8 +100,33 @@ class PredictionModel:
         mean_last = lag_slice.mean(axis=0).astype(np.float32)
         std_last = lag_slice.std(axis=0).astype(np.float32)
 
+        # Streaming-safe analogs inspired by catch22:
+        # - lag-1 autocorrelation per feature
+        # - fraction of window values above the mean (persistence)
+        x_lag = lag_slice[:-1, :]
+        y_lag = lag_slice[1:, :]
+
+        x_mean = x_lag.mean(axis=0)
+        y_mean = y_lag.mean(axis=0)
+
+        x_center = x_lag - x_mean
+        y_center = y_lag - y_mean
+
+        num = (x_center * y_center).mean(axis=0)
+        denom = np.sqrt((x_center**2).mean(axis=0) * (y_center**2).mean(axis=0)) + 1e-8
+        ac_lag1 = (num / denom).astype(np.float32)
+
+        above = lag_slice > mean_last[None, :]
+        frac_above = above.mean(axis=0).astype(np.float32)
+
         step_feature = np.array([data_point.step_in_seq / 1000.0], dtype=np.float32)
-        x = np.concatenate([lag_flat, delta_flat, mean_last, std_last, step_feature], axis=0)
+
+        # v5 feature set for submission: v3 features plus streaming-safe analogs
+        # inspired by catch22 (lag-1 autocorr and persistence).
+        x = np.concatenate(
+            [lag_flat, delta_flat, mean_last, std_last, ac_lag1, frac_above, step_feature],
+            axis=0,
+        )
 
         # Normalize with training statistics
         x_norm = (x - self.x_mean) / self.x_std

@@ -10,6 +10,12 @@ Use **Tsururu** locally on `train.parquet` to discover strong forecasting strate
 - [x] Implement simple moving‑average baseline in `competition_package/solution.py`  
 - [x] Establish strong baseline using Tsururu offline (univariate CatBoost + lags)  
 - [x] Implement first optimized streaming model for submission (lag‑MLP)  
+- [x] Iterate feature sets and submissions:
+  - [x] v1 – raw lags only → LB ~0.3266.  
+  - [x] v2 – lags + LastKnown‑delta → LB ~0.3293.  
+  - [x] v3 – lags + LastKnown‑delta + rolling mean/std → small offline/streaming gain.  
+  - [x] v4 – v3 + per‑sequence catch22 (lab only; overfit LB ~0.15 when used in submission).  
+  - [x] v5 – v3 + streaming‑safe analogs (lag‑1 autocorr + persistence fraction) → LB ~**0.3390** with safe runtime.  
 
 ## 1. Offline Exploration with Tsururu (Local Only)
 
@@ -78,17 +84,17 @@ Re‑implement the selected Tsururu strategy using only allowed core libs (e.g.,
 
 ## 4. Packaging & Submission
 
-- [ ] Prepare submission folder (minimal contents):
-  - [ ] `solution.py` (entry point with `PredictionModel`)  
-  - [ ] Model weight files (e.g., `cat_0.cbm`–`cat_31.cbm` or `model.pth`)  
-  - [ ] Any small helper modules strictly needed at inference  
-- [ ] Verify no Tsururu dependence in submission:
-  - [ ] `solution.py` and helpers import only allowed libs (NumPy/pandas/sklearn/torch/etc.)  
-  - [ ] No `import tsururu` in submission code  
-- [ ] Create archive from the solution directory:
-  - [ ] `zip -r ../submission.zip .`  
-- [ ] Test the zip locally if there is a provided scorer wrapper (optional)  
-- [ ] Submit and monitor leaderboard performance  
+- [x] Prepare submission folder (minimal contents):
+  - [x] `solution.py` (entry point with `PredictionModel`)  
+  - [x] Model weight files (e.g., `lag_mlp.pth`, `lag_mlp_normalization.npz`).  
+  - [x] Any small helper modules strictly needed at inference (`utils.py`).  
+- [x] Verify no Tsururu dependence in submission:
+  - [x] `solution.py` and helpers import only allowed libs (NumPy/pandas/sklearn/torch/etc.).  
+  - [x] No `import tsururu` in submission code.  
+- [x] Create archives from the solution directory:
+  - [x] `submission.zip`, `submission_lag_delta.zip`, `submission_mlp_catch22.zip`, `submission_mlp_v3.zip`, `submission_mlp_v5_streaming_analogs.zip`.  
+- [x] Test zips locally where practical (via `python solution.py` on `train.parquet`).  
+- [x] Submit and monitor leaderboard performance (currently best: v5 streaming‑analog MLP at ~0.3390).  
 
 ## 5. Iteration Ideas (Optional)
 
@@ -138,27 +144,49 @@ Re‑implement the selected Tsururu strategy using only allowed core libs (e.g.,
 
 ### 5.4 Automated Feature Generation Lab (catch22, etc.)
 
-Goal: use automated time‑series feature extractors (especially **catch22**) as an **offline lab** to design better feature sets, then re‑implement the winning ideas in our simple lag+MLP pipeline.
+Goal: use automated time‑series feature extractors (especially **catch22**) as an **offline lab** to design better feature sets, then re‑implement the winning ideas in our simple lag+MLP pipeline using streaming‑safe analogs.
 
-- [ ] Add an offline feature extraction script (e.g., `compute_catch22_features.py`):
-  - [ ] For each `seq_ix` and each feature dimension (0–31), compute the 22 catch22 features on the full 1000‑step series.  
-  - [ ] Concatenate across 32 dims → 704 features per sequence.  
-  - [ ] Save as `datasets/catch22_per_seq.npz` with `seq_ids` and `catch22_features` (shape `(n_seqs, 704)`).  
-- [ ] Augment supervised features in `train_model.py`:
-  - [ ] Load `catch22_per_seq.npz` once at startup.  
-  - [ ] When building each sample `(X_t, y_t)`, look up the precomputed 704‑dim catch22 vector for its `seq_ix` and append it to the lag+delta+stats+step feature vector.  
-  - [ ] Retrain the MLP and compare validation mean R² to the current v3 baseline (~0.428).  
-- [ ] Mirror catch22 features in `solution.py`:
-  - [ ] Bundle `catch22_per_seq.npz` in the submission and load it in `PredictionModel.__init__`.  
-  - [ ] In `_build_features`, after building lag+delta+rolling+step features, append the per‑sequence catch22 vector (no runtime call to catch22 itself).  
-- [ ] Feature validation workflow (MLP as fast lab):
-  - [ ] Fix the MLP architecture and training hyperparameters (hidden size, epochs) for stability.  
-  - [ ] For each new feature set (e.g., +catch22, +trend, +longer‑window stats):  
-    - [ ] Retrain MLP once, record validation mean R² from `train_model.py`,  
-    - [ ] Run `python solution.py` to record streaming train‑file R² and runtime,  
-    - [ ] Log results in `EXPERIMENT_LOG.md` (config + scores).  
-  - [ ] Keep only feature sets that provide a meaningful lift (e.g., +0.01 R² or more) without hurting runtime.  
+- [x] Add an offline feature extraction script (`compute_catch22_features.py`):
+  - [x] For each `seq_ix` and each feature dimension (0–31), compute the 22 catch22 features on the full 1000‑step series.  
+  - [x] Concatenate across 32 dims → 704 features per sequence.  
+  - [x] Save as `datasets/catch22_per_seq.npz` with `seq_ids` and `catch22_values` (shape `(n_seqs, 32, 22)`).  
+- [x] Augment supervised features in `train_model.py` for offline labs:
+  - [x] Load `catch22_per_seq.npz` once at startup.  
+  - [x] When building each sample `(X_t, y_t)`, look up the precomputed 704‑dim catch22 vector for its `seq_ix` and append it to the lag+delta+stats+step feature vector when `use_catch22=True`.  
+  - [x] Retrain the MLP and compare validation mean R² to the current v3 baseline (~0.428); v4 (with catch22) reaches ~0.4335 offline but does not generalize when used directly in submissions.  
+- [x] Analyze catch22 contributions and design streaming‑safe analogs:
+  - [x] Use CatBoost (`catch22_feature_importance.py`) to compute the global importance split between v3 features and the catch22 block (~88% vs ~12%), and identify the most important catch22 statistics (spectral energy/centroid, autocorrelation time, persistence, local trend).  
+  - [x] From these findings, define a small set of cheap, streaming‑friendly features (short‑window lag‑1 autocorrelation and a simple persistence fraction) and test them as extensions of the v3 feature set (v5 experiment).  
+- [x] Submission‑side usage (updated plan):
+  - [x] Do **not** mirror full per‑sequence catch22 vectors into `solution.py` (this was tried and caused strong overfitting and a public leaderboard drop).  
+  - [x] Instead, implement only streaming‑safe analogs in both `train_model.py` and `solution.py`, computed from the rolling `n_lags` buffer and current `step_in_seq` (v5 currently in `solution.py`).  
+- [x] Feature validation workflow (MLP as fast lab):
+  - [x] Fix the MLP architecture and training hyperparameters (hidden size, epochs) for stability (64 hidden units, 10 epochs).  
+  - [x] For the new v5 feature set (+lag‑1 autocorr, +persistence fraction):  
+    - [x] Retrain MLP once, record validation mean R² from `train_model.py` (~0.4318).  
+    - [x] Run `python solution.py` to record streaming train‑file R² and runtime (~0.36+ R², ~35–40 s).  
+    - [x] Log results in `EXPERIMENT_LOG.md` (config + scores).  
+  - [ ] Keep only feature sets that provide a meaningful lift (e.g., +0.01 R² or more) without hurting runtime or generalization (v5 currently passes this check vs v2/v3).  
 - [ ] Final feature scoring & selection for submission:
   - [ ] Once a few strong feature sets are identified via MLP, optionally run CatBoost MultiRMSE offline on the best one or two as a high‑cost “oracle” check.  
   - [ ] Use model performance (val R² and streaming R²) and, if needed, CatBoost feature importance to decide which features to keep.  
   - [ ] Lock in the chosen feature set and MLP configuration for the final submission, avoiding further structural changes close to the deadline.  
+
+### 5.5 Future Score‑Improvement Ideas (Post‑v5)
+
+If we want to push beyond the current ~0.339 leaderboard score, possible next experiments include:
+
+- **Model capacity tweaks (same features):**
+  - Try hidden size 128 or a shallow 2‑layer MLP (e.g., 128 → 64 → 32) with the v5 feature set.  
+  - Gradually increase epochs (e.g., 15–20) with early stopping on validation R².  
+- **Additional tiny streaming analogs:**
+  - Add a lag‑2 autocorrelation analog over the 10‑step window.  
+  - Add a very cheap trend indicator (e.g., mean of last 3 differences) if it helps val R².  
+  - Only keep these if they give a clear offline + leaderboard gain.  
+- **Multi‑scale lags (if runtime allows):**
+  - Explore adding a few coarser lags (e.g., at offsets 2, 5, 20) on top of the existing 10‑step window, guided by Tsururu results.  
+- **Heavier models (later phase):**
+  - Small GRU/LSTM per sequence, or a slightly larger CatBoost MultiRMSE, as long as runtime on train/test stays safe.  
+  - Consider simple ensembles (e.g., average MLP and CatBoost predictions) if file size and CPU budget allow.  
+
+All of these should follow the same pattern as v5: prototype offline, verify streaming consistency, measure train/val R², and then test a single clean submission.  

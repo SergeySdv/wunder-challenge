@@ -31,11 +31,17 @@ The idea: before doing anything non‑trivial, the agent should skim these files
   - Settings and outcomes (validation R², leaderboard scores, runtime).  
   - Future hypotheses and ideas to test.
 
-- `TEACHING_NOTES.md`  
-  - “Teacher notes” explaining the project step‑by‑step.  
-  - Math and reasoning behind the feature engineering, MLP training, and streaming inference.  
-  - How Tsururu fits as an offline exploration tool.  
+- `docs/TEACHING_NOTES.md`
+  - "Teacher notes" explaining the project step‑by‑step.
+  - Math and reasoning behind the feature engineering, MLP training, and streaming inference.
+  - How Tsururu fits as an offline exploration tool.
   - Good context for understanding *why* the current code looks the way it does.
+
+- `docs/CATCH22_FEATURES_GUIDE.md`
+  - Comprehensive student-friendly guide to catch22 time-series features.
+  - Detailed explanations with examples, visualizations, and intuition for each feature.
+  - Why catch22 is used offline only and how to design streaming-safe analogs.
+  - Practice exercises and further reading suggestions.
 
 - `examples/simple/README.md`  
   - Description of the simple moving‑average example solution.  
@@ -96,7 +102,7 @@ The idea: before doing anything non‑trivial, the agent should skim these files
 When working on this repo, an agent should:
 
 1. **Start with docs**:
-   - Read `README.md`, `PLAN.md`, `DATA_DESCRIPTION.md`, `EXPERIMENT_LOG.md`, `TEACHING_NOTES.md`, and `examples/simple/README.md` to understand:
+   - Read `README.md`, `PLAN.md`, `DATA_DESCRIPTION.md`, `EXPERIMENT_LOG.md`, `docs/TEACHING_NOTES.md`, and `examples/simple/README.md` to understand:
      - The data and task,  
      - The current solution path,  
      - What has already been tried and how it performed.
@@ -150,6 +156,6 @@ When asked to improve or modify the solution:
    - Run `python solution.py` to ensure streaming behavior and runtime are acceptable.  
 4. If adding a new experiment:
    - Append a short, clear entry to `EXPERIMENT_LOG.md` with settings and results.  
-   - Update `PLAN.md` or `TEACHING_NOTES.md` if the change is conceptual or structural.  
+   - Update `PLAN.md` or `docs/TEACHING_NOTES.md` if the change is conceptual or structural.  
 
 This structure should give any future agent enough context to make informed changes without breaking the competition contract or re‑doing work that’s already been done.

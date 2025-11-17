@@ -204,7 +204,7 @@ These are saved to `models/lag_mlp_normalization.npz` for reuse at inference.
 
 Defined in `train_model.py:1` as `LagMLP`:
 
-- Input layer: `D` units (321 in v1, 641 in v2, 705 in v3 with rolling stats),
+- Input layer: `D` units (321 in v1, 641 in v2, 705 in v3 with rolling stats, 1409 in v4 with catch22, 769 in v5 with streaming‑safe analog features),
 - Hidden layer: 64 units + ReLU activation,
 - Output layer: 32 units.
 
@@ -234,6 +234,7 @@ We train with:
   - v1: 5 epochs.
   - v2 (with LastKnown‑delta features): 10 epochs.
   - v3 (lags + LastKnown‑delta + rolling mean/std): still 10 epochs (we keep training budget fixed).
+  - v4 (lags + LastKnown‑delta + rolling mean/std + per-sequence catch22 features): also 10 epochs (we change features, not training budget).
 
 ### 5.4 Validation metric (R²) and versions
 
@@ -248,6 +249,10 @@ On your run, this reached about **0.416** on the validation split.
 With the enriched feature set (v2: raw lags + LastKnown‑delta features, input_dim=641), validation mean R² improved to about **0.42+**.
 
 With a further enriched feature set (v3: raw lags + LastKnown‑delta + rolling mean/std over the 10‑step window, input_dim=705), validation mean R² improved again to about **0.428**.
+
+With automated per-sequence catch22 features appended (v4: v3 features + flattened 32×22 catch22 vector per sequence, input_dim=1409), validation mean R² improved further to about **0.4335** **in offline lab training only**. Later leaderboard experiments showed that using these full‑sequence catch22 descriptors directly in the submission model led to overfitting and a large score drop, so catch22 is now treated as an **offline feature lab only**, and the submission model uses catch22 only to inspire streaming‑safe analogs.
+
+With a streaming‑safe analog extension (v5: v3 features + lag‑1 autocorrelation and persistence fraction over the 10‑step window, input_dim=769), validation mean R² improved modestly again to about **0.4318**, and this configuration generalizes well to the public leaderboard.
 
 We then save:
 
@@ -288,7 +293,7 @@ When `predict(data_point)` is called:
 4. If `need_prediction == True`:
    - If not enough history (len < 10): return `data_point.state` as a graceful fallback.
    - Else:
-     - Build the same feature vector as in training (matching the latest version of `build_supervised_dataset`):
+     - Build the same feature vector as in training **for the current submission version (v3)**:
        - Flatten last 10 states (raw lags),
        - Compute LastKnown‑delta features: subtract the most recent state from all lags and flatten,
        - Compute rolling statistics over the window: per‑feature mean and std over the last 10 steps,
@@ -298,21 +303,27 @@ When `predict(data_point)` is called:
 
 This ensures:
 
-- The **features at inference time match those at training**.
+- The **features at inference time match those at training** for the v3 model that backs the current submission.  
 - We respect the streaming protocol.
 - All computation is CPU‑friendly and deterministic (we fix PyTorch to 1 thread).
 
-Locally, running `python solution.py` evaluates the model on `train.parquet` and prints:
+Locally, running `python solution.py` evaluates the v3 model on `train.parquet` and prints:
 
 - v1 (raw lags): mean R² ≈ 0.346,
 - v2 (lags + LastKnown‑delta): mean R² ≈ 0.352,
 - v3 (lags + LastKnown‑delta + rolling mean/std): slightly higher mean R² on the train file (exact value depends on randomness and was not fully captured in the truncated logs, but runtime remains ~20–25 seconds),
 - R² per feature for the first few dimensions.
 
+An offline v4 variant (lags + LastKnown‑delta + rolling mean/std + per‑sequence catch22 features) reached mean R² ≈ **0.378** on the train file, but when mirrored into a submission it overfit the public leaderboard (score dropped to ~0.15).  
+As a result, v4 is now treated purely as a **lab configuration**; the production `solution.py` sticks to the v3 feature set and uses catch22 only to inspire streaming‑safe analogs, not as direct per‑sequence descriptors in the submission.
+
 Leaderboard:
 
 - v1 (raw lags) submission achieved ~**0.3266**.
 - v2 (lags + LastKnown‑delta) submission achieved ~**0.3293**.
+- v3 (lags + LastKnown‑delta + rolling mean/std) improved streaming R² and stayed around the same leaderboard range.  
+- v4 (lags + LastKnown‑delta + rolling mean/std + per‑sequence catch22) is treated as a **lab‑only** configuration; when used in submission it badly overfit and scored ~0.15.  
+- v5 (lags + LastKnown‑delta + rolling mean/std + lag‑1 autocorr + persistence fraction) is the current submission family and achieved a public leaderboard score of about **0.3390**.
 
 ---
 
@@ -348,7 +359,55 @@ This shows that:
 
 ---
 
-## 8. Suggested Reading / Concepts
+## 8. Catch22 Feature Insights (Offline Lab)
+
+We also used **catch22** features as an offline lab to understand what kinds of time‑series patterns matter beyond simple lags and rolling stats. For each sequence and each feature dimension, catch22 computes 22 summary statistics; we then trained CatBoost with both:
+
+- v3 features: lags + LastKnown‑delta + rolling mean/std + step, and
+- a 704‑dim per‑sequence catch22 block: 32 dimensions × 22 statistics.
+
+CatBoost feature importance on this v4 feature set shows that:
+
+- The base v3 block accounts for ~88% of total importance.
+- The catch22 block accounts for ~12% of total importance.
+- The most useful catch22 features are mainly **spectral, autocorrelation, persistence and local trend statistics**.
+
+### Key catch22 Features (Summary)
+
+The most important catch22 statistics that emerged:
+
+- **Spectral features**: `SP_welch_rect_area_5_1` (mid-frequency energy), `SP_welch_rect_centroid` (frequency center of mass)
+- **Autocorrelation features**: `CO_f1ecac` (memory decay time), `CO_FirstMin_ac` (oscillation period)
+- **Predictability features**: `FC_LocalSimple_mean1_tauresrat` (AR(1) fit quality), `FC_LocalSimple_mean3_stderr` (AR(3) error)
+- **Dynamics features**: `CO_trev_1_num` (time-reversibility), `CO_HistogramAMI_even_2_5` (nonlinear dependence)
+- **Persistence features**: `SB_BinaryStats_mean_longstretch1` (longest run above/below mean)
+
+**📖 For detailed explanations with examples, visualizations, and intuition, see [`CATCH22_FEATURES_GUIDE.md`](CATCH22_FEATURES_GUIDE.md).**
+
+### Why Not Use in Submission?
+
+⚠️ **Important**: Per-sequence catch22 features use the entire 1000-step sequence to compute statistics, which:
+- Encodes full-sequence information (future leakage)
+- Encodes sequence identity from train.parquet
+- Does not generalize to new hidden test sequences
+
+### Streaming-Safe Analog Strategy
+
+Instead, we use catch22 to **guide the design of streaming-safe analog features** that can be computed from the last 10 steps only:
+
+| catch22 Feature | Streaming-Safe Analog |
+|-----------------|----------------------|
+| `SP_welch_area` | Rolling variance, absolute deviation |
+| `CO_f1ecac` | Lag-1 autocorrelation on window |
+| `FC_mean1_tauresrat` | R² of lag-1 regression |
+| `CO_trev_1_num` | Skewness of increments |
+| `SB_longstretch1` | Max run length in last 10 steps |
+
+These analogs can be computed from the same lag buffer that we already maintain in `solution.py`, so they are safe for submission while still reflecting the kinds of patterns catch22 found useful offline.
+
+---
+
+## 9. Suggested Reading / Concepts
 
 If you want to deepen your understanding, look up:
 
@@ -372,7 +431,7 @@ For Tsururu specifically, you can search:
 
 ---
 
-## 9. Summary for Students
+## 10. Summary for Students
 
 - We started with a **simple, correct baseline** (moving average) to understand the competition API.
 - We used **Tsururu** as a sandbox to quickly see that **lag features + normalization + CatBoost** work extremely well for forecasting one feature.

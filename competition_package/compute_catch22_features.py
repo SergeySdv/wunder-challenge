@@ -10,14 +10,19 @@ from train_model import load_dataset
 def _import_catch22():
     """Import catch22_all from the catch22 package, with a clear error if missing."""
     try:
-        from catch22 import catch22_all
+        # Preferred lightweight package
+        from pycatch22 import catch22_all
     except ImportError as exc:  # pragma: no cover - simple import guard
-        raise ImportError(
-            "The 'catch22' package is required to run this script.\n"
-            "Install it inside your virtualenv, e.g.:\n"
-            "  source .venv/bin/activate\n"
-            "  pip install catch22"
-        ) from exc
+        try:
+            # Fallback to catch22 if available under that name
+            from catch22 import catch22_all  # type: ignore
+        except ImportError:
+            raise ImportError(
+                "A catch22 implementation is required to run this script.\n"
+                "Install one of:\n"
+                "  pip install pycatch22\n"
+                "or (heavier) an aeon/sktime variant that provides catch22_all."
+            ) from exc
     return catch22_all
 
 
@@ -119,4 +124,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

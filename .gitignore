@@ -10,4 +10,3 @@ __pycache__/
 competition_package/datasets/
 competition_package/models/
 competition_package/catboost_info/
-
