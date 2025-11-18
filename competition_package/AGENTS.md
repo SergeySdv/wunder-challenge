@@ -20,10 +20,15 @@ The idea: before doing anything non‑trivial, the agent should skim these files
   - Strategy: use Tsururu offline for exploration, then re‑implement in plain Python for submission.  
   - Iteration ideas for future work (lags, normalizers, model types).
 
-- `datasets/DATA_DESCRIPTION.md`  
-  - Detailed description of `datasets/train.parquet`: shape, columns, dtypes.  
-  - Explanation of `need_prediction`, sequence lengths, and feature stats.  
+- `datasets/DATA_DESCRIPTION.md`
+  - Detailed description of `datasets/train.parquet`: shape, columns, dtypes.
+  - Explanation of `need_prediction`, sequence lengths, and feature stats.
   - Mapping to Tsururu format (`id`, `date`, `value`) used in experiments.
+
+- `datasets/DATASET_REPORT.md`
+  - Comprehensive auto-generated markdown report of the full dataset.
+  - Includes statistics, sample data, correlations, and distribution analysis.
+  - **Use this to share dataset details with remote agents or collaborators.**
 
 - `EXPERIMENT_LOG.md`  
   - Chronological log of experiments and results.  
