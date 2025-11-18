@@ -5,6 +5,7 @@ __pycache__/
 
 # Competition artifacts
 *.zip
+submissions/
 
 # Large data / model directories (kept out of git)
 competition_package/datasets/

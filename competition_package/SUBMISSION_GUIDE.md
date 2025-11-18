@@ -99,27 +99,33 @@ This will:
 
 Use this to sanity-check runtime and streaming behaviour before packaging a submission.
 
-### 2.4 Build MLP Submission ZIP (using a submission folder)
+### 2.4 Build MLP Submission ZIP
 
-The competition expects a ZIP with `solution.py` at the root and any required model files alongside it.  
-We keep these files in a dedicated **submission folder** under `competition_package` so that each submission version is self-contained.
+The competition expects a ZIP with `solution.py` at the root and any required model files alongside it.
+We keep these files in a dedicated **submissions folder** at the project root so that each submission version is self-contained.
 
 From the project root:
 
 ```bash
 cd /Users/sergei/PycharmProjects/WunderSex
-cd competition_package
 
-mkdir -p submission_mlp_v6
-cp solution.py submission_mlp_v6/solution.py
-cp utils.py submission_mlp_v6/
-cp -r models submission_mlp_v6/
+# Create submissions folder structure
+mkdir -p submissions/mlp_v6
 
-cd submission_mlp_v6
-zip -r ../../submission_mlp_v6.zip .
+# Copy required files from competition_package
+cp competition_package/solution.py submissions/mlp_v6/solution.py
+cp competition_package/utils.py submissions/mlp_v6/
+cp -r competition_package/models submissions/mlp_v6/
+
+# Create the submission ZIP
+cd submissions/mlp_v6
+zip -r ../submission_mlp_v6.zip .
+cd ../..
 ```
 
-Then go back to the project root (if needed) and upload `submission_mlp_v6.zip` to the competition.  
+The final ZIP will be at: `submissions/submission_mlp_v6.zip`
+
+Upload this to the competition platform.
 
 > Note: `solution.py` must be at the ZIP root, not inside a nested folder.
 
@@ -179,24 +185,30 @@ This will:
 
 Use this to check that the CatBoost model behaves correctly in the streaming environment and that runtime is acceptable.
 
-### 3.3 Build CatBoost Submission ZIP (using a submission folder)
+### 3.3 Build CatBoost Submission ZIP
 
 From the project root:
 
 ```bash
 cd /Users/sergei/PycharmProjects/WunderSex
-cd competition_package
 
-mkdir -p submission_catboost_v5
-cp solution_catboost.py submission_catboost_v5/solution.py
-cp utils.py submission_catboost_v5/
-cp -r models submission_catboost_v5/
+# Create submissions folder structure
+mkdir -p submissions/catboost_v5
 
-cd submission_catboost_v5
-zip -r ../../submission_catboost_v5_1.zip .
+# Copy required files from competition_package
+cp competition_package/solution_catboost.py submissions/catboost_v5/solution.py
+cp competition_package/utils.py submissions/catboost_v5/
+cp -r competition_package/models submissions/catboost_v5/
+
+# Create the submission ZIP
+cd submissions/catboost_v5
+zip -r ../submission_catboost_v5.zip .
+cd ../..
 ```
 
-Then upload `submission_catboost_v5_1.zip` (or whatever name you choose) as a CatBoost-based submission.
+The final ZIP will be at: `submissions/submission_catboost_v5.zip`
+
+Upload this to the competition platform.
 
 ---
 
@@ -214,8 +226,9 @@ Putting it together, a practical workflow for new experiments is:
    - When a feature set looks promising with the MLP, run `python train_catboost_experiment.py` to train a CatBoost model on the same features.  
    - Use `solution_catboost.py` to evaluate it in streaming mode.  
 
-3. **Submissions (using submission folders):**
-   - Use the MLP folder (e.g. `competition_package/submission_mlp_v6`) to build ZIPs like `submission_mlp_v6.zip` for faster, more frequent submissions.  
-   - Use the CatBoost folder (e.g. `competition_package/submission_catboost_v5`) to build ZIPs like `submission_catboost_v5_1.zip` for occasional CatBoost-based submissions, given its heavy training cost.  
+3. **Submissions:**
+   - Create MLP submissions in `submissions/mlp_v6/` and build ZIPs as `submissions/submission_mlp_v6.zip` for faster, more frequent submissions.
+   - Create CatBoost submissions in `submissions/catboost_v5/` and build ZIPs as `submissions/submission_catboost_v5.zip` for occasional CatBoost-based submissions, given its heavy training cost.
+   - All submission files and ZIPs are kept in the centralized `submissions/` folder at the project root, separate from the source code.
 
 This keeps the submission process predictable while allowing you to iterate quickly on features and models. 
