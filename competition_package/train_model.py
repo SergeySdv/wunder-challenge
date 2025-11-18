@@ -108,6 +108,45 @@ def _compute_lag1_autocorr(lag_slice: np.ndarray) -> np.ndarray:
     return ac.astype(np.float32)
 
 
+def _compute_lagk_autocorr(lag_slice: np.ndarray, lag: int) -> np.ndarray:
+    """
+    Compute a simple lag-k autocorrelation estimate for each feature
+    over the lag window.
+
+    Parameters
+    ----------
+    lag_slice : np.ndarray
+        Array of shape (n_lags, dim) with recent states.
+    lag : int
+        Positive lag (>= 1) at which to estimate autocorrelation.
+
+    Returns
+    -------
+    ac : np.ndarray
+        Array of shape (dim,) with lag-k autocorrelation estimates
+        in [-1, 1].
+    """
+    if lag <= 0 or lag >= lag_slice.shape[0]:
+        # If the requested lag is not valid for the window length,
+        # return zeros as a neutral value.
+        return np.zeros(lag_slice.shape[1], dtype=np.float32)
+
+    x = lag_slice[:-lag, :]
+    y = lag_slice[lag:, :]
+
+    x_mean = x.mean(axis=0)
+    y_mean = y.mean(axis=0)
+
+    x_center = x - x_mean
+    y_center = y - y_mean
+
+    num = (x_center * y_center).mean(axis=0)
+    denom = np.sqrt((x_center**2).mean(axis=0) * (y_center**2).mean(axis=0)) + 1e-8
+
+    ac = num / denom
+    return ac.astype(np.float32)
+
+
 def _compute_frac_above_mean(
     lag_slice: np.ndarray, mean_last: np.ndarray
 ) -> np.ndarray:
@@ -121,6 +160,86 @@ def _compute_frac_above_mean(
     above = lag_slice > mean_last[None, :]
     frac = above.mean(axis=0)
     return frac.astype(np.float32)
+
+
+def _compute_robust_window_stats(
+    lag_slice: np.ndarray, mean_last: np.ndarray, std_last: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Compute robust distributional statistics over the lag window
+    for each feature: quantiles, IQR, skewness, kurtosis, and
+    coefficient of variation.
+    """
+    q25 = np.percentile(lag_slice, 25, axis=0).astype(np.float32)
+    median = np.percentile(lag_slice, 50, axis=0).astype(np.float32)
+    q75 = np.percentile(lag_slice, 75, axis=0).astype(np.float32)
+    iqr = (q75 - q25).astype(np.float32)
+
+    # Avoid division by zero when standard deviation is very small.
+    denom = std_last + 1e-8
+    standardized = (lag_slice - mean_last[None, :]) / denom[None, :]
+
+    skewness = standardized**3
+    skewness = skewness.mean(axis=0).astype(np.float32)
+
+    kurtosis = standardized**4
+    kurtosis = kurtosis.mean(axis=0).astype(np.float32) - 3.0
+    kurtosis = kurtosis.astype(np.float32)
+
+    cv = std_last / (np.abs(mean_last) + 1e-8)
+    cv = cv.astype(np.float32)
+
+    return q25, median, q75, iqr, skewness, kurtosis, cv
+
+
+def _compute_trend_features(lag_slice: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Compute simple per-feature trend descriptors over the lag window:
+      - slope of a least-squares line vs. time index
+      - R^2 of that linear fit
+      - a crude curvature indicator (difference between late-half and early-half slopes)
+    """
+    n_lags, dim = lag_slice.shape
+    t = np.arange(n_lags, dtype=np.float32)
+
+    # Precompute sums for the shared time index.
+    sum_t = float(n_lags * (n_lags - 1) / 2.0)
+    sum_t2 = float(n_lags * (n_lags - 1) * (2 * n_lags - 1) / 6.0)
+
+    sum_y = lag_slice.sum(axis=0)  # (dim,)
+    sum_ty = (t[:, None] * lag_slice).sum(axis=0)  # (dim,)
+
+    denom = n_lags * sum_t2 - sum_t * sum_t
+    if denom == 0.0:
+        slope = np.zeros(dim, dtype=np.float32)
+        r2 = np.zeros(dim, dtype=np.float32)
+    else:
+        slope = (n_lags * sum_ty - sum_t * sum_y) / denom
+        slope = slope.astype(np.float32)
+
+        intercept = (sum_y - slope * sum_t) / float(n_lags)
+        intercept = intercept.astype(np.float32)
+
+        fitted = intercept[None, :] + slope[None, :] * t[:, None]
+        residual = lag_slice - fitted
+        ss_res = (residual**2).sum(axis=0)
+        mean_y = lag_slice.mean(axis=0)
+        ss_tot = ((lag_slice - mean_y[None, :]) ** 2).sum(axis=0)
+        r2 = 1.0 - ss_res / (ss_tot + 1e-8)
+        r2 = r2.astype(np.float32)
+
+    # Curvature: difference between late-half and early-half slopes.
+    mid = n_lags // 2
+    if mid == 0 or mid == n_lags:
+        curvature = np.zeros(dim, dtype=np.float32)
+    else:
+        first_span = float(mid)
+        second_span = float(n_lags - mid)
+        slope_first = (lag_slice[mid, :] - lag_slice[0, :]) / first_span
+        slope_second = (lag_slice[-1, :] - lag_slice[mid, :]) / second_span
+        curvature = (slope_second - slope_first).astype(np.float32)
+
+    return slope, r2, curvature
 
 
 def split_by_seq(
@@ -228,13 +347,54 @@ def build_supervised_dataset(
             mean_last = lag_slice.mean(axis=0).astype(np.float32)  # (dim,)
             std_last = lag_slice.std(axis=0).astype(np.float32)  # (dim,)
 
-            # Streaming-safe analogs inspired by catch22:
-            # - lag-1 autocorrelation estimate per feature
-            # - fraction of window values above the mean (persistence)
+            # Streaming-safe analogs inspired by catch22 (v5 + v6):
+            # - lag-1 autocorrelation estimate per feature (v5)
+            # - additional short-window autocorr at lags 2 and 3 (v6)
+            # - simple aggregate acf sum over lags 1..3 (v6)
+            # - fraction of window values above the mean (persistence, v5)
+            # - robust rolling stats and local trend (v6)
             ac_lag1 = _compute_lag1_autocorr(lag_slice)  # (dim,)
             frac_above = _compute_frac_above_mean(lag_slice, mean_last)  # (dim,)
 
-            features = [lag_flat, delta_flat, mean_last, std_last, ac_lag1, frac_above]
+            ac_lag2 = _compute_lagk_autocorr(lag_slice, lag=2)  # (dim,)
+            ac_lag3 = _compute_lagk_autocorr(lag_slice, lag=3)  # (dim,)
+            acf_sum_1_3 = (np.abs(ac_lag1) + np.abs(ac_lag2) + np.abs(ac_lag3)).astype(
+                np.float32
+            )  # (dim,)
+
+            (
+                q25,
+                median,
+                q75,
+                iqr,
+                skewness,
+                kurtosis,
+                cv,
+            ) = _compute_robust_window_stats(lag_slice, mean_last, std_last)
+
+            trend_slope, trend_r2, curvature = _compute_trend_features(lag_slice)
+
+            features = [
+                lag_flat,
+                delta_flat,
+                mean_last,
+                std_last,
+                ac_lag1,
+                ac_lag2,
+                ac_lag3,
+                acf_sum_1_3,
+                frac_above,
+                q25,
+                median,
+                q75,
+                iqr,
+                skewness,
+                kurtosis,
+                cv,
+                trend_slope,
+                trend_r2,
+                curvature,
+            ]
             if add_step_feature:
                 # step position as a simple normalized scalar
                 features.append(np.array([current_step / 1000.0], dtype=np.float32))

@@ -306,6 +306,44 @@ This file tracks what has been tried so far, what we observed, and ideas for fut
   - With enough trees and full data, CatBoost MultiRMSE matches or slightly exceeds the MLP v2 validation performance (~0.42+), but at a **much higher training cost** (~4h single‑thread).  
   - This run is mainly an upper‑bound reference: it shows that our current lag+delta features can support strong tree‑based models, but using CatBoost as the main model would require careful consideration of training time and availability in the competition environment.
 
+### 2.6b CatBoost MultiRMSE on v5 Streaming-Safe Features (All 32 Features, Offline + Submission)
+
+- Files:
+  - Offline lab: `train_catboost_experiment.py`.  
+  - Streaming model: `solution_catboost.py` (submission variant).  
+- Feature construction:
+  - Reuses `build_supervised_dataset` with `n_lags=10` and the **v5 streaming-safe feature block**:  
+    - Raw lags (10×32), LastKnown‑delta (10×32), rolling mean/std (32+32),  
+    - `ac_lag1` (lag‑1 autocorr per feature), `frac_above_mean` (persistence),  
+    - `step_in_seq/1000`.  
+  - Total supervised feature dimension: **769**.  
+- Dataset:
+  - Train: `371,287` supervised samples (from 413 sequences).  
+  - Val:   `93,496` supervised samples (from 104 sequences).  
+- Training configuration:
+  - `CatBoostRegressor(loss_function="MultiRMSE")`.  
+  - Hyperparameters:  
+    - `iterations=500`, `learning_rate=0.05`, `depth=6`, `l2_leaf_reg=3`,  
+      `thread_count=1`, `od_type="Iter"`, `od_wait=50`, `verbose=100`.  
+  - Runtime:
+    - Training finished in ≈ **20,060 s (~5.6 hours)** on local CPU (single thread).  
+- Results:
+  - Best iteration: ~497 with validation loss (`test`) ≈ **4.3317**.  
+  - Validation mean R² ≈ **0.4275** on the full validation set (slightly below MLP v5/v6 ~0.431–0.432 on the same split).  
+  - Streaming evaluation on `train.parquet` via `solution_catboost.py`:  
+    - Mean R² across all features ≈ **0.3651**.  
+    - Runtime ≈ **4.8 minutes** on the full train file.  
+  - Public leaderboard:
+    - Submission `submission_catboost_v5_1.zip` achieved a score of **0.3340** (a bit **below** the MLP v5/v6 submissions at ~0.339–0.340).  
+- Takeaways:
+  - With v5 features, a large CatBoost MultiRMSE model achieves good validation and streaming performance but still **slightly underperforms** the Lag‑MLP on held‑out sequences and on the leaderboard.  
+  - The training cost (~5–6 hours single‑thread) is high relative to the small R² gap vs the MLP, so CatBoost v5 is best used as an **occasional oracle** rather than the primary submission model in this project.  
+  - There is no clear sign of severe overfitting:  
+    - Train loss remains higher than validation loss at the best iteration,  
+    - Train and validation R² are close,  
+    - Streaming R² on the train file (~0.365) is in line with MLP v6 rather than much higher.  
+  - Overall, this confirms that the current feature pipeline is well‑suited to both neural and tree‑based models, but the **Lag‑MLP offers a better accuracy‑to‑cost trade‑off** for the competition environment.
+
 ### 2.7 Custom Lag‑MLP + LastKnown‑Delta + Rolling Stats + catch22 (All 32 Features) – v4
 
 - Files:
@@ -420,6 +458,8 @@ This file tracks what has been tried so far, what we observed, and ideas for fut
 - Our custom multivariate lag‑MLP:
   - v1 (raw lags) achieves ~0.41 val R² offline and ~0.3266 leaderboard R².  
   - v2 (lags + LastKnown‑delta) achieves ~0.42+ val R² offline and ~0.3293 leaderboard R².  
+  - v5 (lags + LastKnown‑delta + rolling stats + lag‑1 autocorr + persistence) achieves ~0.432 val R² offline and ~0.3390 leaderboard R².  
+  - v6 (v5 features + extra short‑window autocorr, robust stats, and per‑feature trend) achieves ~0.4321 val R² offline, ~0.3653 streaming R² on the train file, and ~0.3400 leaderboard R².  
 - We are moving upwards but still below top solutions (~0.39), indicating more feature/model improvements are possible.
 
 ---

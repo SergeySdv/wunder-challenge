@@ -159,31 +159,34 @@ Goal: use automated time‑series feature extractors (especially **catch22**) as
   - [x] From these findings, define a small set of cheap, streaming‑friendly features (short‑window lag‑1 autocorrelation and a simple persistence fraction) and test them as extensions of the v3 feature set (v5 experiment).  
 - [x] Submission‑side usage (updated plan):
   - [x] Do **not** mirror full per‑sequence catch22 vectors into `solution.py` (this was tried and caused strong overfitting and a public leaderboard drop).  
-  - [x] Instead, implement only streaming‑safe analogs in both `train_model.py` and `solution.py`, computed from the rolling `n_lags` buffer and current `step_in_seq` (v5 currently in `solution.py`).  
+  - [x] Instead, implement only streaming‑safe analogs in both `train_model.py` and `solution.py`, computed from the rolling `n_lags` buffer and current `step_in_seq` (v5/v6 now in `solution.py`).  
 - [x] Feature validation workflow (MLP as fast lab):
   - [x] Fix the MLP architecture and training hyperparameters (hidden size, epochs) for stability (64 hidden units, 10 epochs).  
   - [x] For the new v5 feature set (+lag‑1 autocorr, +persistence fraction):  
     - [x] Retrain MLP once, record validation mean R² from `train_model.py` (~0.4318).  
     - [x] Run `python solution.py` to record streaming train‑file R² and runtime (~0.36+ R², ~35–40 s).  
     - [x] Log results in `EXPERIMENT_LOG.md` (config + scores).  
-  - [ ] Keep only feature sets that provide a meaningful lift (e.g., +0.01 R² or more) without hurting runtime or generalization (v5 currently passes this check vs v2/v3).  
-- [ ] Final feature scoring & selection for submission:
-  - [ ] Once a few strong feature sets are identified via MLP, optionally run CatBoost MultiRMSE offline on the best one or two as a high‑cost “oracle” check.  
-  - [ ] Use model performance (val R² and streaming R²) and, if needed, CatBoost feature importance to decide which features to keep.  
-  - [ ] Lock in the chosen feature set and MLP configuration for the final submission, avoiding further structural changes close to the deadline.  
+  - [x] Keep only feature sets that provide a meaningful lift (e.g., +0.01 R² or more) without hurting runtime or generalization (v5/v6 currently pass this check vs v1–v3).  
+- [x] Final feature scoring & selection for submission:
+  - [x] Once a few strong feature sets are identified via MLP, optionally run CatBoost MultiRMSE offline on the best one or two as a high‑cost “oracle” check (done for v5).  
+  - [x] Use model performance (val R² and streaming R²) and, if needed, CatBoost feature importance to decide which features to keep (we kept the v6 analog extensions, not per‑sequence catch22).  
+  - [x] Lock in the chosen feature set and MLP configuration for the current submission (v6 features + 1‑hidden‑layer MLP), while treating further changes as optional, incremental experiments.  
 
 ### 5.5 Future Score‑Improvement Ideas (Post‑v5)
 
 If we want to push beyond the current ~0.339 leaderboard score, possible next experiments include:
 
-- **Model capacity tweaks (same features):**
+- **Model capacity tweaks (same v5 features):**
   - Try hidden size 128 or a shallow 2‑layer MLP (e.g., 128 → 64 → 32) with the v5 feature set.  
   - Gradually increase epochs (e.g., 15–20) with early stopping on validation R².  
-- **Additional tiny streaming analogs:**
-  - Add a lag‑2 autocorrelation analog over the 10‑step window.  
-  - Add a very cheap trend indicator (e.g., mean of last 3 differences) if it helps val R².  
-  - Only keep these if they give a clear offline + leaderboard gain.  
-- **Multi‑scale lags (if runtime allows):**
+- **v6 – richer short‑window statistics (building on v5):**
+  - Extend the current streaming‑safe analog set beyond `ac_lag1` and persistence fraction, still using only the last 10 steps:  
+    - Add short‑window autocorrelation at lags 2 and 3, plus a simple aggregate like `sum(|acf_1..3|)` per feature.  
+    - Add robust rolling statistics per feature over the 10‑step window: quantiles (25/50/75), IQR, skewness, kurtosis, coefficient of variation.  
+    - Add a tiny local trend block per feature: slope of a least‑squares fit over the last 10 points, simple `R²` of that fit, and a crude curvature indicator (difference between early‑half and late‑half slopes).  
+  - Implement these in `train_model.py` first, retrain the MLP, and log offline/streaming R² as “v6” in `EXPERIMENT_LOG.md`.  
+  - Once offline gains are confirmed, mirror the exact same computations into `solution.py` to keep submission streaming‑safe.  
+- **Multi‑scale lags (if runtime allows and v6 helps):**
   - Explore adding a few coarser lags (e.g., at offsets 2, 5, 20) on top of the existing 10‑step window, guided by Tsururu results.  
 - **Heavier models (later phase):**
   - Small GRU/LSTM per sequence, or a slightly larger CatBoost MultiRMSE, as long as runtime on train/test stays safe.  

@@ -1,9 +1,12 @@
 # Feature Generation Lab – catch22 & Shared Features
 
-This guide explains how to use automated time-series feature generation (via **catch22**) together with our lag-based MLP and CatBoost experiments.
+This guide explains how to use automated time-series feature generation (via **catch22**) together with our lag-based MLP and CatBoost experiments, and how those offline labs inform the **streaming-safe feature blocks** that end up in the submission model.
 
-The key idea:  
-**Compute rich features offline once, save them as a small table, and then reuse them in both MLP and CatBoost without adding heavy dependencies to `solution.py`.**
+The key ideas are:
+
+- **Do heavy feature discovery offline** (catch22, CatBoost feature importance, clustering in catch22 space).  
+- **Design light, streaming-safe analogs** that can be computed from a short lag window (e.g., last 10 steps) and used in `solution.py`.  
+- **Keep the submission model leak-free** by never using full-sequence descriptors directly at runtime.
 
 ---
 
@@ -13,8 +16,8 @@ The key idea:
 - Keep all heavy work **offline**:
   - `compute_catch22_features.py` computes per-sequence, per-dimension catch22 features and saves them to `datasets/catch22_per_seq.npz`.
 - Allow **offline labs** to use the enriched feature set:
-  - The lag-MLP in `train_model.py` (v4 experiments), and
-  - The offline CatBoost lab (`train_catboost_experiment.py`, `catch22_feature_importance.py`),
+  - The lag-MLP in `train_model.py` (v4 experiments), and  
+  - The offline CatBoost lab (`train_catboost_experiment.py`, `catch22_feature_importance.py`),  
   can both consume v3 features + per-sequence catch22.
 
 Important: **per-sequence catch22 vectors are not safe for direct use in the final submission model**, because they encode full-sequence information and sequence identity from `train.parquet`. They are therefore reserved for offline analysis and for **designing streaming-safe analogs** that can be computed on-the-fly from short lag windows.
@@ -112,20 +115,28 @@ These results guide what **streaming-friendly analogs** we should prototype next
 
 ---
 
-## 4. Streaming-Safe Analogs (Future Work)
+## 4. Streaming-Safe Analogs (v5 and beyond)
 
 Because per-sequence catch22 vectors leak full-sequence information and do not transfer to new hidden sequences, the plan is to:
 
 1. Use catch22 **offline only** (as above) to discover which types of statistics matter most (spectral, autocorrelation, persistence, etc.).  
-2. Design cheap, streaming-safe approximations that can be computed from the last `n_lags` steps only, per feature, such as:
-   - Short-window variance / energy and absolute deviation,
-   - Simple lag-1 / lag-2 autocorrelation estimates,
-   - Rolling skewness/kurtosis,
-   - Simple persistence indicators (e.g., fraction of steps above a local mean).  
-3. Wire these analogs into `train_model.py` (as additional features after the existing v3 block), retrain the MLP, and evaluate offline/streaming R².  
-4. Mirror only these streaming-safe analogs in `solution.py` for submission, keeping the heavy catch22 machinery strictly offline.  
+2. Design cheap, streaming-safe approximations that can be computed from the last `n_lags` steps only, per feature. The current versions are:
+   - **v3 block (submission-ready):**  
+     - Raw lags over the last 10 steps (flattened).  
+     - LastKnown-delta features (lags minus the most recent state).  
+     - Rolling mean and std over the 10-step window.  
+     - Simple position feature `step_in_seq/1000`.  
+   - **v5 block (submission-ready, inspired by catch22):**  
+     - Lag-1 autocorrelation estimate per feature over the 10-step window.  
+     - Persistence fraction: fraction of window values above the window mean.  
+3. Next-step analogs (planned **v6** extensions, still streaming-safe, all on the same 10-step window):  
+   - Additional short-window autocorrelation at lags 2 and 3, plus simple aggregates like `sum(|acf_1..3|)` per feature.  
+   - Robust rolling statistics per feature: quantiles (25/50/75), IQR, skewness, kurtosis, coefficient of variation over the 10-step window.  
+   - Local trend per feature: slope and simple `R²` of a least-squares line over the last 10 points, plus a crude curvature indicator (difference between early-half and late-half slopes).  
+4. Wire each new analog family into `train_model.py` (after the existing v5 block), retrain the MLP and/or CatBoost, and evaluate offline/streaming R² before deciding whether to keep it.  
+5. Mirror only the **selected** streaming-safe analogs in `solution.py` for submission, keeping the heavy catch22 machinery and any experimental analogs strictly offline until they prove useful.  
 
-This way, we get the **conceptual benefits** of catch22 (it tells us which dynamics matter) without leaking full sequence identity into the submission model. 
+This way, we get the **conceptual benefits** of catch22 (it tells us which dynamics matter) while keeping the final submission model leak-free, cheap to compute, and easy to reason about. 
 
 ---
 

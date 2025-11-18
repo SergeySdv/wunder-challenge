@@ -357,6 +357,40 @@ This shows that:
 - A sufficiently large CatBoost model on these features can reach similar performance to the MLP v2, but training is much more expensive in our single‑threaded, 32‑output setup.  
 - For fast iteration and teaching purposes, the Lag‑MLP remains the primary submission model, while CatBoost serves as a strong offline reference and feature‑engineering lab.
 
+### 7.1 How We Check CatBoost for Overfitting
+
+A common question is: **“Is CatBoost just overfitting, or is it genuinely slightly worse than the MLP here?”**
+
+In this project we use three simple checks:
+
+1. **Train vs validation loss / R² (from `train_catboost_experiment.py`)**
+   - CatBoost prints `learn` (train loss) and `test` (validation loss) at each iteration.  
+   - Overfitting pattern:
+     - Train loss keeps going down,
+     - Validation loss goes down for a while, then starts to **go back up** (best iteration is earlier than the final one).  
+   - In our v5 CatBoost runs, the best iteration is near the end and `learn` is **still higher** than `test` at that point, which is the opposite of classical overfitting — the model is simply not as strong as the MLP on this feature set.
+
+2. **Explicit train vs validation R²**
+   - After training we can compute:
+     - `train_mean_r2 = R²(model(X_train), y_train)`  
+     - `val_mean_r2 = R²(model(X_val), y_val)`  
+   - If `train_mean_r2` ≫ `val_mean_r2`, that’s a sign of overfitting.  
+   - In our experiments, CatBoost v5 shows **similar train and val R²**, reinforcing that the gap to the MLP is mainly a **bias / feature** issue, not severe overfit.
+
+3. **Streaming check on held-out sequences**
+   - For the submission-style `PredictionModel` (see `solution_catboost.py`), we run the **streaming scorer** on:
+     - The full train file (`train.parquet`), and  
+     - Optionally, only the validation `seq_ix` subset.  
+   - If the streaming R² drops a lot only on the held-out sequences (while being very high on the sequences used for training the trees), that suggests overfitting to the training sequences.
+
+In our current runs:
+
+- CatBoost v5’s val mean R² (~0.4275) is **slightly below** the MLP v5/v6 (~0.431–0.432),  
+- Streaming R² on the full train file (~0.365) is roughly in line with the MLP,  
+- There is **no strong train≫val gap**.
+
+So the conclusion is: the CatBoost model is **not wildly overfitted**, it is just a bit less well‑matched to our engineered feature space than the Lag‑MLP, while being much more expensive to train in this configuration.
+
 ---
 
 ## 8. Catch22 Feature Insights (Offline Lab)
