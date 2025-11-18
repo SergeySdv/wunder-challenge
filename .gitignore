@@ -11,3 +11,6 @@ submissions/
 competition_package/datasets/
 competition_package/models/
 competition_package/catboost_info/
+
+# Generated plots (can be recreated with visualize_features.py)
+competition_package/plots_*.png

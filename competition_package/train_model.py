@@ -9,11 +9,12 @@ from torch import nn
 
 
 N_LAGS_DEFAULT = 10
-HIDDEN_SIZE = 64
-N_EPOCHS = 10
+HIDDEN_SIZE = 256
+N_EPOCHS = 20
 BATCH_SIZE = 1024
 LR = 1e-3
 WEIGHTS_DIR = "models"
+ENSEMBLE_SEEDS = [42, 43, 44]
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -432,8 +433,14 @@ class LagMLP(nn.Module):
     def __init__(self, input_dim: int, hidden_dim: int, output_dim: int):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
+            # Funnel-style architecture:
+            # input_dim -> 2 * hidden_dim -> hidden_dim -> output_dim
+            nn.Linear(input_dim, 2 * hidden_dim),
             nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(2 * hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1),
             nn.Linear(hidden_dim, output_dim),
         )
 
@@ -464,6 +471,9 @@ def train_mlp(
     model.to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="max", factor=0.5, patience=2
+    )
     loss_fn = nn.MSELoss()
 
     train_dataset = torch.utils.data.TensorDataset(
@@ -481,6 +491,7 @@ def train_mlp(
     )
 
     best_val_r2 = -1e9
+    best_state_dict = None
 
     for epoch in range(1, N_EPOCHS + 1):
         model.train()
@@ -514,6 +525,8 @@ def train_mlp(
         val_targets_np = np.vstack(val_targets)
         val_r2 = compute_mean_r2(val_targets_np, val_preds_np)
 
+        scheduler.step(val_r2)
+
         print(
             f"Epoch {epoch}/{N_EPOCHS} - "
             f"train_loss={train_loss:.6f}, val_mean_r2={val_r2:.6f}"
@@ -521,6 +534,11 @@ def train_mlp(
 
         if val_r2 > best_val_r2:
             best_val_r2 = val_r2
+            best_state_dict = model.state_dict()
+
+    # Load best-performing weights before returning
+    if best_state_dict is not None:
+        model.load_state_dict(best_state_dict)
 
     return model, best_val_r2
 
@@ -568,19 +586,72 @@ def main() -> None:
     output_dim = y_train.shape[1]
 
     print(
-        f"Training MLP with input_dim={input_dim}, output_dim={output_dim}, "
-        f"hidden_dim={HIDDEN_SIZE}, epochs={N_EPOCHS}"
-    )
-    model, best_val_r2 = train_mlp(
-        X_train_norm, y_train, X_val_norm, y_val, input_dim, output_dim
+        f"Training MLP ensemble with input_dim={input_dim}, output_dim={output_dim}, "
+        f"hidden_dim={HIDDEN_SIZE}, epochs={N_EPOCHS}, seeds={ENSEMBLE_SEEDS}"
     )
 
-    print(f"\nBest validation mean R²: {best_val_r2:.6f}")
-
-    # Save model and normalization parameters for later use in solution.py
+    # Directory for saving weights and normalization parameters
     weights_dir = os.path.join(base_dir, WEIGHTS_DIR)
     os.makedirs(weights_dir, exist_ok=True)
 
+    best_overall_r2 = -1e9
+    best_seed_idx: Optional[int] = None
+    best_state_dict: Optional[dict] = None
+
+    for seed_idx, seed in enumerate(ENSEMBLE_SEEDS):
+        print(f"\n=== Training ensemble member {seed_idx} with seed={seed} ===")
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+
+        model, best_val_r2 = train_mlp(
+            X_train_norm, y_train, X_val_norm, y_val, input_dim, output_dim
+        )
+
+        print(
+            f"Seed {seed} (index {seed_idx}) best validation mean R²: {best_val_r2:.6f}"
+        )
+
+        # Save this ensemble member
+        seed_model_path = os.path.join(weights_dir, f"lag_mlp_seed{seed_idx}.pth")
+        torch.save(
+            {
+                "state_dict": model.state_dict(),
+                "input_dim": input_dim,
+                "output_dim": output_dim,
+                "hidden_dim": HIDDEN_SIZE,
+                "n_lags": N_LAGS_DEFAULT,
+            },
+            seed_model_path,
+        )
+        print(f"Saved ensemble member {seed_idx} weights to: {seed_model_path}")
+
+        if best_val_r2 > best_overall_r2:
+            best_overall_r2 = best_val_r2
+            best_seed_idx = seed_idx
+            best_state_dict = model.state_dict()
+
+    print(
+        f"\nBest validation mean R² across ensemble members: {best_overall_r2:.6f} "
+        f"(seed index {best_seed_idx})"
+    )
+
+    # Save a single best model checkpoint for backward compatibility
+    model_path = os.path.join(weights_dir, "lag_mlp.pth")
+    if best_state_dict is not None:
+        torch.save(
+            {
+                "state_dict": best_state_dict,
+                "input_dim": input_dim,
+                "output_dim": output_dim,
+                "hidden_dim": HIDDEN_SIZE,
+                "n_lags": N_LAGS_DEFAULT,
+            },
+            model_path,
+        )
+        print(f"Saved best single-model weights to: {model_path}")
+
+    # Save normalization parameters (shared by all ensemble members)
+    norm_path = os.path.join(weights_dir, "lag_mlp_normalization.npz")
     model_path = os.path.join(weights_dir, "lag_mlp.pth")
     norm_path = os.path.join(weights_dir, "lag_mlp_normalization.npz")
 
@@ -603,7 +674,6 @@ def main() -> None:
         feature_cols=np.array(feature_cols),
     )
 
-    print(f"Saved model weights to: {model_path}")
     print(f"Saved normalization params to: {norm_path}")
 
 

@@ -163,4 +163,15 @@ When asked to improve or modify the solution:
    - Append a short, clear entry to `EXPERIMENT_LOG.md` with settings and results.  
    - Update `PLAN.md` or `docs/TEACHING_NOTES.md` if the change is conceptual or structural.  
 
+---
+
+## 5. Environment / Tooling Notes
+
+- Prefer using the project virtual environment at:
+  - `/Users/sergei/PycharmProjects/WunderSex/.venv`
+- When running training or scoring scripts inside `competition_package`, use:
+  - `../.venv/bin/python train_model.py`
+  - `../.venv/bin/python solution.py`
+- Keep changes compatible with a CPU-only PyTorch setup.
+
 This structure should give any future agent enough context to make informed changes without breaking the competition contract or re‑doing work that’s already been done.

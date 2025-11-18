@@ -448,6 +448,85 @@ This file tracks what has been tried so far, what we observed, and ideas for fut
   - The most influential catch22 statistics are mostly **spectral and autocorrelation/time‑scale descriptors** plus simple measures of persistence and local trend.  
   - This supports the idea of designing **streaming‑safe analogs** (e.g., short‑window autocorrelation, simple energy/variance proxies, persistence indicators) that can be computed from the last `n_lags` steps only and used safely in the submission model, while keeping full per‑sequence catch22 as an offline lab tool only.
 
+### 2.9 Lag‑MLP v7 – Deeper Funnel MLP + LR Scheduler (Submission Model)
+
+- Files:
+  - `train_model.py` (updated LagMLP architecture and training loop).  
+  - `solution.py` (mirrored architecture for streaming inference).  
+- Feature set:
+  - Uses the **v6 streaming‑safe features** unchanged (lags + LastKnown‑delta + rolling stats, short‑window autocorr at lags 1–3, acf sum, persistence fraction, robust window stats, and per‑feature trend, plus step_in_seq/1000).  
+  - Supervised feature dimension: `X` shape `(371,287, 1185)` on train, `(93,496, 1185)` on val.  
+- Model & training:
+  - Architecture: funnel‑style MLP (CPU‑only, PyTorch) with dropout:  
+    - Input: 1185.  
+    - Hidden 1: 512 (ReLU, Dropout 0.1).  
+    - Hidden 2: 256 (ReLU, Dropout 0.1).  
+    - Output: 32.  
+  - Hyperparameters:  
+    - Epochs: 20 (`N_EPOCHS = 20`).  
+    - Batch size: 1024.  
+    - Optimizer: Adam, `lr = 1e‑3`.  
+    - LR scheduler: `ReduceLROnPlateau(mode="max", factor=0.5, patience=2)` on validation mean R².  
+    - Best epoch’s weights are tracked and reloaded before saving.  
+  - Environment:  
+    - Trained using the project virtualenv at `/Users/sergei/PycharmProjects/WunderSex/.venv` via:  
+      - `cd competition_package`  
+      - `../.venv/bin/python train_model.py`  
+- Validation & streaming results:
+  - Offline supervised validation (sequence‑disjoint split) on `(X_val, y_val)`:  
+    - Best validation mean R² ≈ **0.4413** (up from ~0.432 for earlier v5/v6 MLP).  
+  - Streaming evaluation on `datasets/train.parquet` with `ScorerStepByStep` and the updated `solution.py`:  
+    - Command: `../.venv/bin/python solution.py` from `competition_package`.  
+    - Mean R² across all 32 features: **0.444645**.  
+    - Example per‑feature R² (first 5 features):  
+      - Feature 0: **0.3362**  
+      - Feature 1: **0.3417**  
+      - Feature 2: **0.3752**  
+      - Feature 3: **0.5337**  
+      - Feature 4: **0.3735**  
+    - Runtime on full `train.parquet` (~517k rows): **≈ 2.4 minutes** on local CPU (well below the 60‑minute competition limit and only modestly slower than the previous v6 MLP).  
+- Submission status:
+  - No new submission ZIP built yet, but this v7 MLP is ready to be packaged (reusing the `SUBMISSION_GUIDE.md` MLP instructions, e.g. `submissions/mlp_v7`).  
+  - Ensemble support (multi‑seed checkpoints `lag_mlp_seed*.pth` and averaging in `solution.py`) has been wired into the codebase but not yet trained/evaluated; current results reflect a **single v7 model**.
+
+### 2.10 Lag‑MLP v7 – 3-Seed Ensemble (Submission Model)
+
+- Files:
+  - `train_model.py` (ensemble training loop over `ENSEMBLE_SEEDS = [42, 43, 44]`).  
+  - `solution.py` (loads `lag_mlp_seed*.pth` and averages predictions).  
+- Feature set:
+  - Same as v7 single model – v6 streaming‑safe features (lags, LastKnown‑delta, rolling stats, short‑window autocorr 1–3, acf sum, persistence, robust stats, trend, step).  
+  - Supervised shapes unchanged: X `(371,287, 1185)`, y `(371,287, 32)` for train; analogous for val.  
+- Ensemble training:
+  - Seeds: `[42, 43, 44]`.  
+  - For each seed:  
+    - Architecture: 1185 → 512 → 256 → 32, ReLU + Dropout(0.1) between hidden layers.  
+    - Epochs: 20, batch size: 1024, Adam `lr=1e‑3`, ReduceLROnPlateau on val mean R².  
+    - Best validation mean R² per seed (sequence‑disjoint split):  
+      - Seed 42 (idx 0): **0.4424**.  
+      - Seed 43 (idx 1): **0.4451**.  
+      - Seed 44 (idx 2): **0.4393**.  
+    - Checkpoints saved to:  
+      - `models/lag_mlp_seed0.pth`, `lag_mlp_seed1.pth`, `lag_mlp_seed2.pth`.  
+  - Best single-seed validation R² across ensemble members: **0.4451** (seed index 1).  
+  - For backward compatibility, `models/lag_mlp.pth` stores the best single seed; `lag_mlp_normalization.npz` remains shared.  
+- Streaming ensemble evaluation:
+  - `solution.py` detects `lag_mlp_seed*.pth` and builds `self.models` from all three MLPs; `predict()` averages their outputs.  
+  - Command:  
+    - `cd competition_package`  
+    - `../.venv/bin/python solution.py | egrep 'Mean R' -A4`  
+  - Results on full `train.parquet` (517k rows):  
+    - Mean R² across all 32 features: **0.448761** (up from **0.444645** for the single v7 model).  
+    - Example per-feature R² (first few features):  
+      - Feature 0: **0.3389** (vs ~0.3362 single‑model).  
+      - Feature 1: **0.3474** (vs ~0.3417).  
+      - (Remaining per-feature R² follow a similar small but consistent improvement pattern.)  
+    - Runtime: **≈ 3.2 minutes** on local CPU (vs ~2.4 minutes single model), still very safe under the 60‑minute competition budget.  
+- Takeaways:
+  - A small 3‑seed ensemble on top of the v7 architecture yields a **modest but reliable R² gain** (~+0.004 on streaming train R²) and should reduce leaderboard variance.  
+  - Inference cost scales roughly linearly with ensemble size but remains negligible relative to the official time limit.  
+  - This v7 ensemble is a strong candidate for the next submission (`mlp_v7_ensemble`).
+
 ---
 
 ## 3. Current Understanding

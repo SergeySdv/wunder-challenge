@@ -14,8 +14,13 @@ class LagMLP(nn.Module):
     def __init__(self, input_dim: int, hidden_dim: int, output_dim: int) -> None:
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
+            # Funnel-style architecture: input_dim -> 2 * hidden_dim -> hidden_dim -> output_dim
+            nn.Linear(input_dim, 2 * hidden_dim),
             nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(2 * hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1),
             nn.Linear(hidden_dim, output_dim),
         )
 
@@ -42,11 +47,10 @@ class PredictionModel:
         model_path = os.path.join(weights_dir, "lag_mlp.pth")
         norm_path = os.path.join(weights_dir, "lag_mlp_normalization.npz")
 
-        if not (os.path.exists(model_path) and os.path.exists(norm_path)):
+        if not os.path.exists(norm_path):
             raise FileNotFoundError(
-                "Trained model files not found. "
-                "Run train_model.py to generate models/lag_mlp.pth "
-                "and models/lag_mlp_normalization.npz before scoring."
+                "Normalization file not found. "
+                "Run train_model.py to generate models/lag_mlp_normalization.npz before scoring."
             )
 
         # Load normalization parameters
@@ -57,14 +61,53 @@ class PredictionModel:
         # feature_cols is stored for reference; we don't use names at inference
         self.feature_cols = norm["feature_cols"].tolist()
 
-        checkpoint = torch.load(model_path, map_location="cpu")
-        input_dim = int(checkpoint["input_dim"])
-        hidden_dim = int(checkpoint["hidden_dim"])
-        output_dim = int(checkpoint["output_dim"])
+        # Try to load an ensemble of models if available; otherwise fall back to a single model.
+        self.models: list[LagMLP] = []
 
-        self.model = LagMLP(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=output_dim)
-        self.model.load_state_dict(checkpoint["state_dict"])
-        self.model.eval()
+        # Look for per-seed checkpoints named lag_mlp_seed*.pth
+        if os.path.isdir(weights_dir):
+            seed_paths = sorted(
+                [
+                    os.path.join(weights_dir, fname)
+                    for fname in os.listdir(weights_dir)
+                    if fname.startswith("lag_mlp_seed") and fname.endswith(".pth")
+                ]
+            )
+        else:
+            seed_paths = []
+
+        if seed_paths:
+            first_checkpoint = torch.load(seed_paths[0], map_location="cpu")
+            input_dim = int(first_checkpoint["input_dim"])
+            hidden_dim = int(first_checkpoint["hidden_dim"])
+            output_dim = int(first_checkpoint["output_dim"])
+
+            for path in seed_paths:
+                checkpoint = torch.load(path, map_location="cpu")
+                model = LagMLP(
+                    input_dim=input_dim, hidden_dim=hidden_dim, output_dim=output_dim
+                )
+                model.load_state_dict(checkpoint["state_dict"])
+                model.eval()
+                self.models.append(model)
+        else:
+            if not os.path.exists(model_path):
+                raise FileNotFoundError(
+                    "Trained model files not found. "
+                    "Run train_model.py to generate models/lag_mlp.pth "
+                    "and models/lag_mlp_normalization.npz before scoring."
+                )
+            checkpoint = torch.load(model_path, map_location="cpu")
+            input_dim = int(checkpoint["input_dim"])
+            hidden_dim = int(checkpoint["hidden_dim"])
+            output_dim = int(checkpoint["output_dim"])
+
+            model = LagMLP(
+                input_dim=input_dim, hidden_dim=hidden_dim, output_dim=output_dim
+            )
+            model.load_state_dict(checkpoint["state_dict"])
+            model.eval()
+            self.models.append(model)
 
         # Use single-threaded CPU for determinism and resource friendliness
         torch.set_num_threads(1)
@@ -272,7 +315,10 @@ class PredictionModel:
 
         with torch.no_grad():
             x_tensor = torch.from_numpy(x_norm).unsqueeze(0)  # (1, input_dim)
-            preds = self.model(x_tensor).squeeze(0).cpu().numpy()
+            preds_list = [
+                model(x_tensor).squeeze(0).cpu().numpy() for model in self.models
+            ]
+            preds = np.mean(preds_list, axis=0)
 
         return preds
 
