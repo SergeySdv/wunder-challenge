@@ -674,3 +674,52 @@ This file tracks what has been tried so far, what we observed, and ideas for fut
 ---
 
 This log should be updated whenever a new experiment is run (Tsururu configs, new training runs, new submissions) with a short note on settings and results. 
+
+
+### 2.13 Lag-MLP v10 – Robust Ensemble (Winsorization + 5-Fold CV)
+
+- Files:
+  - `train_model.py` (refactored for 5-Fold CV + Winsorization).
+  - `solution.py` (updated for global winsorization bounds + ensemble loading).
+- Motivation:
+  - Address the disconnect between Train R² and Leaderboard R² seen in v8/v9.
+  - Implement "autofin"-style robustness without external dependencies:
+    - **Winsorization**: Clip input lags to [0.1%, 99.9%] quantiles to handle outliers.
+    - **Strict Validation**: 5-Fold CV by sequence + Pseudo-LB (10% held out) to get reliable error estimates.
+- Feature set:
+  - Same v6 streaming-safe features (lags, LastKnown-delta, rolling stats, short-window autocorr 1–3, robust stats, trend, step).
+  - **Input Processing**: Raw lag window is clipped *before* computing any derived features.
+  - Targets `y` are **not** clipped (model sees clean inputs but predicts true targets).
+- Training details:
+  - **Split**:
+    - **Pseudo-LB**: 10% of sequences (~50) held out completely.
+    - **Dev Set**: Remaining 90% (~466 sequences) used for 5-Fold CV.
+  - **Protocol**:
+    - Global Stats (Mean/Std/Winsorization) computed on **Dev Set only**.
+    - Train 5 independent MLPs (one per fold) on the Dev Set.
+    - Ensemble: Simple average of the 5 fold models.
+  - Architecture: Same 1185 -> 512 -> 256 -> 32 funnel MLP.
+- Results:
+  - **CV Results (5 Folds)**:
+    - Mean R²: **0.3544** ± 0.0138.
+    - Fold scores: [0.3317, 0.3614, 0.3515, 0.3533, 0.3739].
+    - This ~0.354 is a conservative estimate of generalization capability.
+  - **Pseudo-LB Results (Held Out)**:
+    - Mean R²: **0.3892**.
+    - This is significantly higher than the CV score and our previous LB best (~0.34), suggesting the held-out set might be slightly "easier" or the model generalizes surprisingly well.
+  - **Streaming Evaluation (Full Train File)**:
+    - Mean R²: **0.4472** (slightly lower than v8/v9's ~0.453, likely due to winsorization "damping" extreme valid signals, but robustness is prioritized).
+  - **Public Leaderboard**:
+    - Submission `submission_mlp_v10_robust_ensemble.zip`: **0.3513**.
+    - This is a **new best score**, improving on v7 (~0.3469). The robust validation and winsorization strategy successfully reduced overfitting/variance on the hidden test set.
+- Submission:
+  - Packaged as `submission_mlp_v10_robust_ensemble.zip`.
+  - Includes all 5 fold models (`lag_mlp_fold*.pth`) and the normalization file.
+- Takeaways:
+  - This "v10" architecture prioritizes **reliability** over raw training fit.
+  - The 5-Fold CV gives us a distribution of likely performance (0.33 - 0.37 range).
+  - Winsorization adds a safety layer against distribution shifts in the hidden test set.
+
+---
+
+## 3. Current Understanding

@@ -182,6 +182,12 @@ Goal: use automated time‑series feature extractors (especially **catch22**) as
 
 If we want to push beyond the current ~0.339 leaderboard score, possible next experiments include:
 
+- [x] **v10 – Robustness & Strict Validation (Winsorization + CV):**
+  - Implemented "autofin"-style outlier handling: clip inputs to [0.1%, 99.9%] quantiles.
+  - Switched to **5-Fold CV** by sequence + **Pseudo-LB** (10% held out) to better estimate generalization.
+  - Result: CV R² ~0.354, Pseudo-LB R² ~0.389. Packaged in `submission_mlp_v10_robust_ensemble.zip`.
+  - **Leaderboard Score:** **0.3513** (New Best vs previous 0.3469).
+
 - **Model capacity tweaks (same v5 features):**
   - Try hidden size 128 or a shallow 2‑layer MLP (e.g., 128 → 64 → 32) with the v5 feature set.  
   - Gradually increase epochs (e.g., 15–20) with early stopping on validation R².  
@@ -199,3 +205,20 @@ If we want to push beyond the current ~0.339 leaderboard score, possible next ex
   - Consider simple ensembles (e.g., average MLP and CatBoost predictions) if file size and CPU budget allow.  
 
 All of these should follow the same pattern as v5: prototype offline, verify streaming consistency, measure train/val R², and then test a single clean submission.  
+
+### 5.6 Ideas Inspired by External Finance Tooling (e.g. `autofin`)
+
+We do **not** plan to import or depend on external libraries like `autofin` inside the submission; instead we can borrow a few design ideas and, if they prove useful, re‑implement them directly in our own codebase:
+
+- **Robustness to outliers (winsorization / clipping):**
+  - Investigate per‑feature clipping of states or short‑horizon returns/deltas based on train‑only quantiles (e.g., 0.05% / 99.95% or 0.1% / 99.9%), to reduce the influence of rare spikes without changing the bulk distribution.  
+  - If experiments show this helps validation/held‑out R², incorporate it as a simple preprocessing step applied consistently in both `train_model.py` and `solution.py` (next‑step “v10”‑style idea).  
+
+- **Stronger time‑series validation schemes:**
+  - Treat `seq_ix` as a “group” and build K‑fold cross‑validation over sequences with fixed folds and, optionally, pseudo‑leaderboard folds that remain untouched until late in iteration (mirroring `group_time_series` splitting ideas).  
+  - Consider simple rolling/expanding splits over `seq_ix` indices (earlier seqs as train, later as validation) as an additional robustness check.  
+  - Use these CV schemes to decide whether new feature ideas (like spreads, clipping, etc.) actually generalize, not just improve train‑file R².  
+
+- **Return/volatility perspective (already partially explored):**
+  - The “predict returns instead of prices” idea corresponds to our v8 residual‑target ensemble; given its worse leaderboard score, we treat this as a cautionary example rather than the main direction.  
+  - Any further ideas in this vein (e.g., volatility‑scaled targets) should be tested very carefully on strong held‑out seq splits before being considered for submission.  

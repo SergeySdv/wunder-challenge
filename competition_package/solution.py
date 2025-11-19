@@ -30,21 +30,18 @@ class LagMLP(nn.Module):
 
 class PredictionModel:
     """
-    Lag-based neural model.
+    Lag-based neural model (v10 Robust Ensemble).
 
-    - Maintains a rolling window of the last `n_lags` states per sequence.
-    - When a prediction is required and enough history is available, builds
-      the same feature vector as in train_model.py:
-        [flattened last n_lags states, step_in_seq / 1000.0]
-      applies saved normalization and feeds it into a small MLP.
-    - For early steps without enough history, falls back to returning the
-      current state (simple baseline) to satisfy the interface.
+    - Maintains a rolling window of the last `n_lags` states.
+    - Applies WINSORIZATION (Clipping) to the lag window using robust bounds learned on train.
+    - Builds streaming-safe features (lags, deltas, rolling stats, trends).
+    - Normalizes features using global stats.
+    - Ensembles 5 models trained via K-Fold CV.
     """
 
     def __init__(self) -> None:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         weights_dir = os.path.join(base_dir, "models")
-        model_path = os.path.join(weights_dir, "lag_mlp.pth")
         norm_path = os.path.join(weights_dir, "lag_mlp_normalization.npz")
 
         if not os.path.exists(norm_path):
@@ -53,63 +50,54 @@ class PredictionModel:
                 "Run train_model.py to generate models/lag_mlp_normalization.npz before scoring."
             )
 
-        # Load normalization parameters
+        # Load normalization and winsorization parameters
         norm = np.load(norm_path, allow_pickle=True)
         self.x_mean = norm["x_mean"].astype(np.float32)
         self.x_std = norm["x_std"].astype(np.float32)
+        self.clip_min = norm["clip_min"].astype(np.float32)
+        self.clip_max = norm["clip_max"].astype(np.float32)
         self.n_lags: int = int(norm["n_lags"])
-        # feature_cols is stored for reference; we don't use names at inference
-        self.feature_cols = norm["feature_cols"].tolist()
-
-        # Try to load an ensemble of models if available; otherwise fall back to a single model.
+        
+        # Try to load the CV ensemble (lag_mlp_fold*.pth)
         self.models: list[LagMLP] = []
-
-        # Look for per-seed checkpoints named lag_mlp_seed*.pth
+        
         if os.path.isdir(weights_dir):
-            seed_paths = sorted(
+            fold_paths = sorted(
                 [
                     os.path.join(weights_dir, fname)
                     for fname in os.listdir(weights_dir)
-                    if fname.startswith("lag_mlp_seed") and fname.endswith(".pth")
+                    if fname.startswith("lag_mlp_fold") and fname.endswith(".pth")
                 ]
             )
         else:
-            seed_paths = []
+            fold_paths = []
 
-        if seed_paths:
-            first_checkpoint = torch.load(seed_paths[0], map_location="cpu")
-            input_dim = int(first_checkpoint["input_dim"])
-            hidden_dim = int(first_checkpoint["hidden_dim"])
-            output_dim = int(first_checkpoint["output_dim"])
+        if not fold_paths:
+             # Fallback to old single/seed models if no folds found (backwards compatibility)
+            seed_paths = sorted([
+                os.path.join(weights_dir, f) for f in os.listdir(weights_dir)
+                if f.startswith("lag_mlp_seed") and f.endswith(".pth")
+            ])
+            fold_paths = seed_paths if seed_paths else [os.path.join(weights_dir, "lag_mlp.pth")]
 
-            for path in seed_paths:
-                checkpoint = torch.load(path, map_location="cpu")
-                model = LagMLP(
-                    input_dim=input_dim, hidden_dim=hidden_dim, output_dim=output_dim
-                )
-                model.load_state_dict(checkpoint["state_dict"])
-                model.eval()
-                self.models.append(model)
-        else:
-            if not os.path.exists(model_path):
-                raise FileNotFoundError(
-                    "Trained model files not found. "
-                    "Run train_model.py to generate models/lag_mlp.pth "
-                    "and models/lag_mlp_normalization.npz before scoring."
-                )
-            checkpoint = torch.load(model_path, map_location="cpu")
-            input_dim = int(checkpoint["input_dim"])
-            hidden_dim = int(checkpoint["hidden_dim"])
-            output_dim = int(checkpoint["output_dim"])
+        # Load all identified models
+        if not os.path.exists(fold_paths[0]):
+             raise FileNotFoundError("No trained model files found in models/ directory.")
 
-            model = LagMLP(
-                input_dim=input_dim, hidden_dim=hidden_dim, output_dim=output_dim
-            )
-            model.load_state_dict(checkpoint["state_dict"])
+        # Read architecture from the first model
+        first_ckpt = torch.load(fold_paths[0], map_location="cpu")
+        input_dim = int(first_ckpt["input_dim"])
+        hidden_dim = int(first_ckpt["hidden_dim"])
+        output_dim = int(first_ckpt["output_dim"])
+
+        for path in fold_paths:
+            ckpt = torch.load(path, map_location="cpu")
+            model = LagMLP(input_dim, hidden_dim, output_dim)
+            model.load_state_dict(ckpt["state_dict"])
             model.eval()
             self.models.append(model)
 
-        # Use single-threaded CPU for determinism and resource friendliness
+        # Use single-threaded CPU for determinism
         torch.set_num_threads(1)
 
         self.current_seq_ix: Optional[int] = None
@@ -121,34 +109,30 @@ class PredictionModel:
 
     def _build_features(self, data_point: DataPoint) -> Optional[np.ndarray]:
         """
-        Build normalized feature vector for the current point, or return None
-        if there is not enough history.
+        Build normalized feature vector for the current point.
+        APPLIES WINSORIZATION (CLIPPING) to the raw lag window.
         """
         if len(self.state_history) < self.n_lags:
             return None
 
-        # Use last n_lags states
-        history_window = self.state_history[-self.n_lags :]
-        lag_slice = np.stack(history_window, axis=0).astype(np.float32)  # (n_lags, dim)
+        # 1. Extract Raw Window
+        raw_slice = np.stack(self.state_history[-self.n_lags :], axis=0).astype(np.float32)
 
-        # raw lags: flatten window
+        # 2. Apply Winsorization (Clipping)
+        # This matches the training preprocessing exactly
+        lag_slice = np.clip(raw_slice, self.clip_min, self.clip_max)
+
+        # 3. Build Features
         lag_flat = lag_slice.reshape(-1)
 
-        # LastKnown-delta features: subtract last lag (most recent state)
-        last = lag_slice[-1]  # (dim,)
-        delta_slice = lag_slice - last  # (n_lags, dim)
+        last = lag_slice[-1]
+        delta_slice = lag_slice - last
         delta_flat = delta_slice.reshape(-1)
 
-        # Rolling statistics over the lag window (per feature)
         mean_last = lag_slice.mean(axis=0).astype(np.float32)
         std_last = lag_slice.std(axis=0).astype(np.float32)
 
-        # Streaming-safe analogs inspired by catch22 (v5 + v6):
-        # - lag-1 autocorrelation per feature (v5)
-        # - additional short-window autocorr at lags 2 and 3 (v6)
-        # - simple aggregate acf sum over lags 1..3 (v6)
-        # - fraction of window values above the mean (persistence, v5)
-        # - robust rolling stats and local trend (v6)
+        # Streaming-safe analogs
         x_lag = lag_slice[:-1, :]
         y_lag = lag_slice[1:, :]
 
@@ -166,18 +150,12 @@ class PredictionModel:
         if lag_slice.shape[0] > 2:
             x_lag2 = lag_slice[:-2, :]
             y_lag2 = lag_slice[2:, :]
-
             x2_mean = x_lag2.mean(axis=0)
             y2_mean = y_lag2.mean(axis=0)
-
             x2_center = x_lag2 - x2_mean
             y2_center = y_lag2 - y2_mean
-
             num2 = (x2_center * y2_center).mean(axis=0)
-            denom2 = (
-                np.sqrt((x2_center**2).mean(axis=0) * (y2_center**2).mean(axis=0))
-                + 1e-8
-            )
+            denom2 = (np.sqrt((x2_center**2).mean(axis=0) * (y2_center**2).mean(axis=0)) + 1e-8)
             ac_lag2 = (num2 / denom2).astype(np.float32)
         else:
             ac_lag2 = np.zeros_like(ac_lag1, dtype=np.float32)
@@ -186,30 +164,22 @@ class PredictionModel:
         if lag_slice.shape[0] > 3:
             x_lag3 = lag_slice[:-3, :]
             y_lag3 = lag_slice[3:, :]
-
             x3_mean = x_lag3.mean(axis=0)
             y3_mean = y_lag3.mean(axis=0)
-
             x3_center = x_lag3 - x3_mean
             y3_center = y_lag3 - y3_mean
-
             num3 = (x3_center * y3_center).mean(axis=0)
-            denom3 = (
-                np.sqrt((x3_center**2).mean(axis=0) * (y3_center**2).mean(axis=0))
-                + 1e-8
-            )
+            denom3 = (np.sqrt((x3_center**2).mean(axis=0) * (y3_center**2).mean(axis=0)) + 1e-8)
             ac_lag3 = (num3 / denom3).astype(np.float32)
         else:
             ac_lag3 = np.zeros_like(ac_lag1, dtype=np.float32)
 
-        acf_sum_1_3 = (
-            np.abs(ac_lag1) + np.abs(ac_lag2) + np.abs(ac_lag3)
-        ).astype(np.float32)
+        acf_sum_1_3 = (np.abs(ac_lag1) + np.abs(ac_lag2) + np.abs(ac_lag3)).astype(np.float32)
 
         above = lag_slice > mean_last[None, :]
         frac_above = above.mean(axis=0).astype(np.float32)
 
-        # Robust distributional statistics over the lag window
+        # Robust stats
         q25 = np.percentile(lag_slice, 25, axis=0).astype(np.float32)
         median = np.percentile(lag_slice, 50, axis=0).astype(np.float32)
         q75 = np.percentile(lag_slice, 75, axis=0).astype(np.float32)
@@ -217,21 +187,17 @@ class PredictionModel:
 
         denom_std = std_last + 1e-8
         standardized = (lag_slice - mean_last[None, :]) / denom_std[None, :]
-
         skewness = (standardized**3).mean(axis=0).astype(np.float32)
         kurtosis = ((standardized**4).mean(axis=0) - 3.0).astype(np.float32)
         cv = (std_last / (np.abs(mean_last) + 1e-8)).astype(np.float32)
 
-        # Local trend features per feature using simple linear regression vs time index
+        # Trend
         n_lags = lag_slice.shape[0]
         t = np.arange(n_lags, dtype=np.float32)
-
         sum_t = float(n_lags * (n_lags - 1) / 2.0)
         sum_t2 = float(n_lags * (n_lags - 1) * (2 * n_lags - 1) / 6.0)
-
         sum_y = lag_slice.sum(axis=0)
         sum_ty = (t[:, None] * lag_slice).sum(axis=0)
-
         denom_trend = n_lags * sum_t2 - sum_t * sum_t
         if denom_trend == 0.0:
             trend_slope = np.zeros_like(mean_last, dtype=np.float32)
@@ -239,10 +205,7 @@ class PredictionModel:
         else:
             trend_slope = (n_lags * sum_ty - sum_t * sum_y) / denom_trend
             trend_slope = trend_slope.astype(np.float32)
-
             intercept = (sum_y - trend_slope * sum_t) / float(n_lags)
-            intercept = intercept.astype(np.float32)
-
             fitted = intercept[None, :] + trend_slope[None, :] * t[:, None]
             residual = lag_slice - fitted
             ss_res = (residual**2).sum(axis=0)
@@ -262,35 +225,19 @@ class PredictionModel:
 
         step_feature = np.array([data_point.step_in_seq / 1000.0], dtype=np.float32)
 
-        # v6 feature set for submission: v3 features plus streaming-safe analogs
-        # inspired by catch22 (lag-1/2/3 autocorr, persistence, robust stats, trend).
+        # Concatenate
         x = np.concatenate(
             [
-                lag_flat,
-                delta_flat,
-                mean_last,
-                std_last,
-                ac_lag1,
-                ac_lag2,
-                ac_lag3,
-                acf_sum_1_3,
-                frac_above,
-                q25,
-                median,
-                q75,
-                iqr,
-                skewness,
-                kurtosis,
-                cv,
-                trend_slope,
-                trend_r2,
-                curvature,
+                lag_flat, delta_flat, mean_last, std_last,
+                ac_lag1, ac_lag2, ac_lag3, acf_sum_1_3, frac_above,
+                q25, median, q75, iqr, skewness, kurtosis, cv,
+                trend_slope, trend_r2, curvature,
                 step_feature,
             ],
             axis=0,
         )
 
-        # Normalize with training statistics
+        # Normalize
         x_norm = (x - self.x_mean) / self.x_std
         return x_norm
 
@@ -315,9 +262,8 @@ class PredictionModel:
 
         with torch.no_grad():
             x_tensor = torch.from_numpy(x_norm).unsqueeze(0)  # (1, input_dim)
-            preds_list = [
-                model(x_tensor).squeeze(0).cpu().numpy() for model in self.models
-            ]
+            # Ensemble Average
+            preds_list = [model(x_tensor).squeeze(0).cpu().numpy() for model in self.models]
             preds = np.mean(preds_list, axis=0)
 
         return preds

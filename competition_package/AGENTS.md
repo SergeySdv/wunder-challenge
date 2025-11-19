@@ -72,10 +72,10 @@ The idea: before doing anything non‑trivial, the agent should skim these files
 
 - `train_model.py`  
   - Offline trainer and feature builder for the MLP.  
-  - Builds supervised `(X, y)`:
-    - X: last 10 states for all 32 features, plus LastKnown‑delta features and a position feature.  
-    - y: next 32‑dim state.  
-  - Handles train/validation split by `seq_ix`, normalization, MLP training, and saving weights/normalization to `models/`.
+  - **v10 Update**: Implements **5-Fold Cross-Validation** and **Pseudo-LB** splitting.
+  - Builds supervised `(X, y)` with **Winsorization** (input clipping to [0.1%, 99.9%] quantiles).
+  - Trains 5 independent models (one per fold) and saves them as `models/lag_mlp_fold*.pth`.
+  - Computes global normalization/clipping stats on the Dev set only.
 
 - `leakage_check.py`  
   - Verifies that `build_supervised_dataset` does not leak future information:  
