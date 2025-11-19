@@ -14,3 +14,6 @@ competition_package/catboost_info/
 
 # Generated plots (can be recreated with visualize_features.py)
 competition_package/plots_*.png
+/competition_package/tsururu_lag_search_results.csv
+/competition_package/mlp_optimization_results.csv
+/competition_package/check_norm_surge.png
