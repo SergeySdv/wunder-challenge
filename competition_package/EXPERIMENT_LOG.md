@@ -527,6 +527,89 @@ This file tracks what has been tried so far, what we observed, and ideas for fut
   - Inference cost scales roughly linearly with ensemble size but remains negligible relative to the official time limit.  
   - This v7 ensemble is a strong candidate for the next submission (`mlp_v7_ensemble`).
 
+### 2.11 Lag‑MLP v8 – Residual Targets (Delta) + 3-Seed Ensemble
+
+- Files:
+  - `train_model.py` – target changed from level to residual: `y_t = state(t+1) - state(t)`.  
+  - `solution.py` – ensemble output interpreted as delta and added to current state before returning the prediction.  
+- Feature set:
+  - Same v6/v7/v7-ensemble input features (lags, LastKnown‑delta, rolling stats, short‑window autocorr, robust stats, trend, step).  
+  - `X` shape unchanged: `(371,287, 1185)` for train, `(93,496, 1185)` for val.  
+- Target engineering:
+  - Old target: `y_t = state(t+1)` (next level).  
+  - New target: `y_t = state(t+1) - state(t)` (next-step jump / residual).  
+  - At inference time, `PredictionModel.predict` computes:  
+    - `delta_hat = mean_mlp(x_t)` (ensemble-averaged delta),  
+    - `state_hat(t+1) = current_state(t) + delta_hat`,  
+    - and returns `state_hat(t+1)` to `ScorerStepByStep`.  
+- Ensemble training:
+  - Same seeds `[42, 43, 44]` and architecture (1185 → 512 → 256 → 32, ReLU + Dropout(0.1)).  
+  - Validation R² now measured on delta targets (residuals) rather than levels.  
+  - Best validation mean R² per seed on the residual task:  
+    - Seed 42 (idx 0): **0.5241**.  
+    - Seed 43 (idx 1): **0.5210**.  
+    - Seed 44 (idx 2): **0.5217**.  
+  - Best across ensemble: **0.5241** (seed index 0).  
+- Streaming evaluation (level predictions via `current_state + delta_hat`):
+  - Command:  
+    - `cd competition_package`  
+    - `../.venv/bin/python solution.py`  
+  - Results on full `train.parquet` (~517k rows):  
+    - Mean R² across all 32 features: **0.452906**.  
+    - Example per-feature R² (first 5 features):  
+      - Feature 0: **0.3473**.  
+      - Feature 1: **0.3576**.  
+      - Feature 2: **0.3801**.  
+      - Feature 3: **0.5416**.  
+      - Feature 4: **0.3899**.  
+    - Runtime: ≈ **3.0–3.1 minutes** on local CPU (similar to v7 ensemble).  
+- Takeaways:
+  - Switching to residual targets (predicting `state(t+1) - state(t)` and then reconstructing the level) yields a **further improvement** over the v7 ensemble: mean streaming R² increases from ~0.4488 → **0.4529** on `train.parquet`.  
+  - The architecture, features, and inference cost remain unchanged; only the target definition and final reconstruction step differ.  
+  - This v8 residual ensemble is currently the strongest lab result and a natural next submission candidate (`mlp_v8_residual_ensemble`).
+
+### 2.12 Lag‑MLP v9 – Multi Pair-Spread Features (Lab Only; Code Reverted)
+
+- Files (temporary experiment):
+  - `train_model.py` – extended supervised feature vector with spread features between several highly correlated pairs.  
+  - `solution.py` – mirrored spread feature block inside `_build_features` for streaming inference.  
+- Feature set changes vs v7/v8:
+  - Kept **level targets** (same as v7; v8 residual target logic was not used here).  
+  - Base feature block remained the **v6 streaming‑safe features** (lags, LastKnown‑delta, rolling stats, short‑window autocorr 1–3, acf sum, persistence, robust stats, trend, step).  
+  - Added a small spread feature block for a curated set of highly correlated pairs identified in EDA:  
+    - `(18, 28, +1)`, `(11, 30, +1)`, `(0, 21, −1)`, `(7, 31, +1)`, `(1, 28, +1)`, `(3, 4, +1)`.  
+  - For each pair `(a, b, sign)` we appended two scalars computed from the most recent state in the lag window:  
+    - `spread = state[a] − sign * state[b]`,  
+    - `|spread|`.  
+  - Supervised feature dimension increased from **1185 → 1197**.  
+- Training details:
+  - Same architecture as v7 ensemble: 1197 → 512 → 256 → 32, ReLU + Dropout(0.1).  
+  - Same training loop / hyperparameters and seeds `[42, 43, 44]`.  
+  - With the new spreads, supervised validation mean R² on the level target task was slightly **lower** than v7: best seed reached ≈ **0.4409** (vs ≈0.4451 for the original v7 ensemble).  
+- Streaming evaluation on `train.parquet` (level predictions):
+  - Command (from `competition_package` after training):  
+    - `../.venv/bin/python solution.py`  
+  - Results on full `train.parquet` (~517k rows):  
+    - Mean R² across all 32 features: **0.453464**.  
+    - Example per‑feature R² (first 5 features):  
+      - Feature 0: **0.3458**.  
+      - Feature 1: **0.3523**.  
+      - Feature 2: **0.3807**.  
+      - Feature 3: **0.5415**.  
+      - Feature 4: **0.3845**.  
+  - Notably, this **streaming train R² slightly exceeded v8** (≈0.4535 vs 0.4529) despite using level targets.  
+- Submission and leaderboard:
+  - Packaged as `submissions/submission_mlp_v9_spreads.zip` (containing the multi‑pair spread `solution.py` and ensemble weights).  
+  - Public leaderboard results:  
+    - v7 ensemble submission (`submission_mlp_v7_ensemble.zip`): **0.3469**.  
+    - v8 residual ensemble submission (`submission_mlp_v8_residual_ensemble.zip`): **0.3378**.  
+    - v9 multi‑spread submission (`submission_mlp_v9_spreads.zip`): **0.3461**.  
+- Takeaways:
+  - Adding explicit spread features for several strong pairs did **improve streaming train R²** beyond both v7 and v8, confirming that pair structure carries usable signal.  
+  - However, the **offline supervised val R² degraded slightly**, and the public leaderboard score for v9 (0.3461) was marginally **worse than v7** (0.3469), despite better train‑file metrics.  
+  - This mirrors the earlier v8 lesson: improvements in train‑file R² (even with intuitively reasonable features) do not guarantee better generalization to the hidden test set.  
+  - Given the small and noisy LB difference and the added complexity, the project has reverted `train_model.py` and `solution.py` back to the **clean v7 ensemble feature set**; pair‑spread features are treated as a **lab‑only idea** for future controlled experiments (e.g., with stronger held‑out seq splits) rather than part of the main submission path.  
+
 ---
 
 ## 3. Current Understanding

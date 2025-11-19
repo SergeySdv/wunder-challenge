@@ -195,6 +195,49 @@ def plot_multiple_sequences_comparison(df, feature_idx=3, n_sequences=5):
     plt.close()
 
 
+def plot_all_features_multi_sequence(df, n_sequences=100, max_steps=1000):
+    """Plot all 32 features with multiple sequences overlaid to show variation."""
+
+    feature_cols = [str(i) for i in range(32)]
+    sequences = df['seq_ix'].unique()[:n_sequences]
+
+    # Create figure with multiple subplots
+    fig = plt.figure(figsize=(20, 24))
+    gs = gridspec.GridSpec(8, 4, figure=fig, hspace=0.4, wspace=0.3)
+
+    # Plot each feature in a subplot
+    for i, col in enumerate(feature_cols):
+        row = i // 4
+        col_idx = i % 4
+        ax = fig.add_subplot(gs[row, col_idx])
+
+        # Plot each sequence with transparency
+        for seq_ix in sequences:
+            seq_data = df[df['seq_ix'] == seq_ix].head(max_steps)
+            ax.plot(seq_data['step_in_seq'], seq_data[col],
+                   linewidth=0.3, alpha=0.15, color='steelblue')
+
+        ax.set_title(f'Feature {col} ({n_sequences} sequences)',
+                    fontsize=10, fontweight='bold')
+        ax.set_xlabel('Step', fontsize=8)
+        ax.set_ylabel('Value', fontsize=8)
+        ax.grid(True, alpha=0.3)
+        ax.tick_params(labelsize=7)
+
+        # Add mean line at 0
+        ax.axhline(0, color='red', linestyle='--', alpha=0.5, linewidth=0.8)
+
+    fig.suptitle(f'All 32 Features - {n_sequences} Sequences Overlaid',
+                fontsize=16, fontweight='bold', y=0.995)
+
+    # Save figure
+    output_path = os.path.join(os.path.dirname(__file__),
+                              f'plots_features_multi_{n_sequences}seq.png')
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    print(f"✅ Saved: {output_path}")
+    plt.close()
+
+
 if __name__ == "__main__":
     # Load data
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -226,6 +269,10 @@ if __name__ == "__main__":
     # 5. Also plot feature 0 (used in initial experiments)
     print("5. Plotting Feature 0 across multiple sequences...")
     plot_multiple_sequences_comparison(df, feature_idx=0, n_sequences=5)
+
+    # 6. NEW: All features with 100 sequences overlaid
+    print("6. Plotting all 32 features with 100 sequences overlaid...")
+    plot_all_features_multi_sequence(df, n_sequences=100)
 
     print("\n✅ All visualizations complete!")
     print(f"\nPlots saved in: {base_dir}")

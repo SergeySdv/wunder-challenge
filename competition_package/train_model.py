@@ -396,6 +396,7 @@ def build_supervised_dataset(
                 trend_r2,
                 curvature,
             ]
+
             if add_step_feature:
                 # step position as a simple normalized scalar
                 features.append(np.array([current_step / 1000.0], dtype=np.float32))

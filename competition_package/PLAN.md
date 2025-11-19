@@ -16,6 +16,10 @@ Use **Tsururu** locally on `train.parquet` to discover strong forecasting strate
   - [x] v3 – lags + LastKnown‑delta + rolling mean/std → small offline/streaming gain.  
   - [x] v4 – v3 + per‑sequence catch22 (lab only; overfit LB ~0.15 when used in submission).  
   - [x] v5 – v3 + streaming‑safe analogs (lag‑1 autocorr + persistence fraction) → LB ~**0.3390** with safe runtime.  
+  - [x] v6 – v5 + extra short‑window autocorr (lags 2–3), robust window stats, and per‑feature trend → LB ~**0.3400**; strong streaming R² on `train.parquet`.  
+  - [x] v7 – deeper funnel MLP + LR scheduler + 3‑seed ensemble on level targets → LB ~**0.3469** (current best submission); streaming train R² ≈ **0.4488**.  
+  - [x] v8 – same v7 features/architecture but with residual targets `state(t+1) − state(t)` and ensemble averaging of deltas → streaming train R² ≈ **0.4529**, but LB dropped to **~0.3378**; kept as a lab experiment only (code reverted to v7‑style level targets for future training).  
+  - [x] v9 – v7 feature set + additional spread features between several highly correlated pairs (e.g. 18–28, 11–30, 0–21, 7–31, 1–28, 3–4); streaming train R² improved further to ≈ **0.4535**, but the leaderboard score was **~0.3461** (slightly below v7), so this is kept as a lab‑only idea and the main code has been reverted to the simpler v7 ensemble.  
 
 ## 1. Offline Exploration with Tsururu (Local Only)
 
@@ -95,6 +99,8 @@ Re‑implement the selected Tsururu strategy using only allowed core libs (e.g.,
   - [x] `submission.zip`, `submission_lag_delta.zip`, `submission_mlp_catch22.zip`, `submission_mlp_v3.zip`, `submission_mlp_v5_streaming_analogs.zip`.  
 - [x] Test zips locally where practical (via `python solution.py` on `train.parquet`).  
 - [x] Submit and monitor leaderboard performance (currently best: v5 streaming‑analog MLP at ~0.3390).  
+  - As of v7: best leaderboard score is **~0.3469** from the v7 level‑target 3‑seed ensemble.  
+  - v8 residual‑target ensemble improved train streaming R² but **hurt** LB (~0.3378), suggesting some over‑optimization to the train distribution; future work should be validated via sequence‑level cross‑validation and held‑out seq splits, not train‑file R² alone.  
 
 ## 5. Iteration Ideas (Optional)
 

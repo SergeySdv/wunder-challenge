@@ -174,4 +174,14 @@ When asked to improve or modify the solution:
   - `../.venv/bin/python solution.py`
 - Keep changes compatible with a CPU-only PyTorch setup.
 
+---
+
+## 6. Validation Strategy Notes
+
+- Default training split in `train_model.py` is **80/20 by `seq_ix`**, which is good but still optimistic relative to the hidden leaderboard.  
+- For more reliable estimates before submitting:
+  - Use **K-fold CV by `seq_ix`** (e.g. 5 folds): shuffle sequence IDs once, then rotate which fold is used as validation; report mean/std of validation R².  
+  - For streaming behavior, run `solution.py` on a **held-out subset of sequences** (e.g. 10–20% of `seq_ix`) and treat that as a local “pseudo-leaderboard” instead of just using R² on the full train file.  
+- Recent experience (v8 residual-target ensemble) showed that improvements in train-file streaming R² do **not** always translate to better leaderboard scores; prefer sequence-level CV and held-out seq splits as decision criteria for new models.
+
 This structure should give any future agent enough context to make informed changes without breaking the competition contract or re‑doing work that’s already been done.
