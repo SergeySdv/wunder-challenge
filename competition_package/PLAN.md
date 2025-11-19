@@ -20,6 +20,7 @@ Use **Tsururu** locally on `train.parquet` to discover strong forecasting strate
   - [x] v7 – deeper funnel MLP + LR scheduler + 3‑seed ensemble on level targets → LB ~**0.3469** (current best submission); streaming train R² ≈ **0.4488**.  
   - [x] v8 – same v7 features/architecture but with residual targets `state(t+1) − state(t)` and ensemble averaging of deltas → streaming train R² ≈ **0.4529**, but LB dropped to **~0.3378**; kept as a lab experiment only (code reverted to v7‑style level targets for future training).  
   - [x] v9 – v7 feature set + additional spread features between several highly correlated pairs (e.g. 18–28, 11–30, 0–21, 7–31, 1–28, 3–4); streaming train R² improved further to ≈ **0.4535**, but the leaderboard score was **~0.3461** (slightly below v7), so this is kept as a lab‑only idea and the main code has been reverted to the simpler v7 ensemble.  
+  - [x] v10 – Robust Ensemble (Winsorization + 5-Fold CV + Pseudo-LB) → LB ~**0.3513** (New Best).
 
 ## 1. Offline Exploration with Tsururu (Local Only)
 
