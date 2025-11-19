@@ -48,6 +48,11 @@ The idea: before doing anything non‑trivial, the agent should skim these files
   - Why catch22 is used offline only and how to design streaming-safe analogs.
   - Practice exercises and further reading suggestions.
 
+- `docs/FEATURE_REGISTRY.md`
+  - **Central definition** of all features used in the project (v1-v13).
+  - Maps feature names to formulas, motivations, and code implementations.
+  - Tracks deprecated/failed features to avoid retrying bad ideas.
+
 - `examples/simple/README.md`  
   - Description of the simple moving‑average example solution.  
   - Shows the minimal correct `PredictionModel` implementation.  

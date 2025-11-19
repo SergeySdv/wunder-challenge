@@ -720,6 +720,57 @@ This log should be updated whenever a new experiment is run (Tsururu configs, ne
   - The 5-Fold CV gives us a distribution of likely performance (0.33 - 0.37 range).
   - Winsorization adds a safety layer against distribution shifts in the hidden test set.
 
+### 2.14 Lag-MLP v11 – Tuned Robust Ensemble (Optuna)
+
+- Files:
+  - `optimize_mlp.py`: Ran random search over hidden size, dropout, LR, and batch size.
+  - `train_model.py`: Updated with optimal params (`HIDDEN_SIZE=128`, `DROPOUT=0.3`, `LR=5e-4`, `BATCH_SIZE=512`).
+- Hypothesis:
+  - The default architecture (256 hidden, 0.1 dropout) might be overfitting or suboptimal.
+- Results:
+  - **Optimization**: Found that smaller models (128 units) with higher regularization (0.3 dropout) generalized better on the holdout set.
+  - **Pseudo-LB**: Improved significantly to **0.3963** (vs 0.3892 in v10).
+  - **Public Leaderboard**: **0.3540** (vs 0.3513 in v10).
+- Takeaways:
+  - Small gains from hyperparameter tuning confirm we are near the "glass ceiling" for this specific feature set + fixed-window MLP architecture.
+  - The large gap between Pseudo-LB (0.39) and Real LB (0.35) persists, motivating a move to recurrent models (v12) to capture longer-term context.
+
+### 2.16 Lag-MLP v13 – Kinematics & Volatility (Regression)
+
+- Files:
+  - `train_model.py` / `solution.py`: Added Accel, Vol Expansion, Roughness.
+- Results:
+  - **CV**: 0.3538 (Flat vs v11).
+  - **Pseudo-LB**: 0.3951 (Slightly worse than v11).
+  - **Public Leaderboard**: **0.3529** (Worse than v11's 0.3540).
+- Takeaways:
+  - Adding ~100 explicit kinematic features added noise/complexity without improving generalization.
+  - The simpler v11 model remains the strongest baseline.
+  - **Action**: Reverted codebase to v11.
+
 ---
 
 ## 3. Current Understanding
+
+
+## v10 Robust Ensemble (Winsorization + 5-Fold CV)
+- Pseudo-LB Score: **0.39628** (Held out 10% seqs)
+- CV Mean R2: **0.35354** (Std: 0.01288)
+- Strategy: Winsorize [0.1%, 99.9%] on inputs only. Global stats on Dev set.
+
+
+## v12 GRU Sequence Model
+- Pseudo-LB Score: **0.34993**
+- CV Mean R2: **0.31645**
+
+
+## v13 Kinematics & Volatility
+- New Features: Vol Expansion, Path Roughness, Accel Mean
+- Pseudo-LB Score: **0.39513**
+- CV Mean R2: **0.35377**
+
+
+## v13 Kinematics & Volatility
+- New Features: Vol Expansion, Path Roughness, Accel Mean
+- Pseudo-LB Score: **0.39432**
+- CV Mean R2: **0.35345**

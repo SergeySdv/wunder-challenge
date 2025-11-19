@@ -17,10 +17,10 @@ class LagMLP(nn.Module):
             # Funnel-style architecture: input_dim -> 2 * hidden_dim -> hidden_dim -> output_dim
             nn.Linear(input_dim, 2 * hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1),
+            nn.Dropout(0.3), # Matches tuned dropout
             nn.Linear(2 * hidden_dim, hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1),
+            nn.Dropout(0.3), # Matches tuned dropout
             nn.Linear(hidden_dim, output_dim),
         )
 
@@ -30,12 +30,11 @@ class LagMLP(nn.Module):
 
 class PredictionModel:
     """
-    Lag-based neural model (v10 Robust Ensemble).
+    Lag-based neural model (v13 Kinematics & Volatility).
 
     - Maintains a rolling window of the last `n_lags` states.
-    - Applies WINSORIZATION (Clipping) to the lag window using robust bounds learned on train.
-    - Builds streaming-safe features (lags, deltas, rolling stats, trends).
-    - Normalizes features using global stats.
+    - Applies WINSORIZATION (Clipping) to the lag window.
+    - Builds streaming-safe features (including Accel/VolExp/Roughness).
     - Ensembles 5 models trained via K-Fold CV.
     """
 
@@ -73,14 +72,13 @@ class PredictionModel:
             fold_paths = []
 
         if not fold_paths:
-             # Fallback to old single/seed models if no folds found (backwards compatibility)
+             # Fallback
             seed_paths = sorted([
                 os.path.join(weights_dir, f) for f in os.listdir(weights_dir)
                 if f.startswith("lag_mlp_seed") and f.endswith(".pth")
             ])
             fold_paths = seed_paths if seed_paths else [os.path.join(weights_dir, "lag_mlp.pth")]
 
-        # Load all identified models
         if not os.path.exists(fold_paths[0]):
              raise FileNotFoundError("No trained model files found in models/ directory.")
 
@@ -97,9 +95,7 @@ class PredictionModel:
             model.eval()
             self.models.append(model)
 
-        # Use single-threaded CPU for determinism
         torch.set_num_threads(1)
-
         self.current_seq_ix: Optional[int] = None
         self.state_history: list[np.ndarray] = []
 
@@ -119,7 +115,6 @@ class PredictionModel:
         raw_slice = np.stack(self.state_history[-self.n_lags :], axis=0).astype(np.float32)
 
         # 2. Apply Winsorization (Clipping)
-        # This matches the training preprocessing exactly
         lag_slice = np.clip(raw_slice, self.clip_min, self.clip_max)
 
         # 3. Build Features
@@ -132,7 +127,6 @@ class PredictionModel:
         mean_last = lag_slice.mean(axis=0).astype(np.float32)
         std_last = lag_slice.std(axis=0).astype(np.float32)
 
-        # Streaming-safe analogs
         x_lag = lag_slice[:-1, :]
         y_lag = lag_slice[1:, :]
 
@@ -222,6 +216,23 @@ class PredictionModel:
             slope_first = (lag_slice[mid, :] - lag_slice[0, :]) / first_span
             slope_second = (lag_slice[-1, :] - lag_slice[mid, :]) / second_span
             curvature = (slope_second - slope_first).astype(np.float32)
+            
+        # v13 New Features
+        # Volatility Expansion
+        half_idx = n_lags // 2
+        std_recent = lag_slice[half_idx:].std(axis=0)
+        vol_exp = (std_recent / (std_last + 1e-8)).astype(np.float32)
+        
+        # Roughness
+        diffs = np.diff(lag_slice, axis=0)
+        path_len = np.sum(np.abs(diffs), axis=0)
+        displacement = np.abs(lag_slice[-1] - lag_slice[0])
+        roughness = (path_len / (displacement + 1e-8)).astype(np.float32)
+        
+        # Acceleration
+        vel = np.diff(lag_slice, axis=0)
+        acc = np.diff(vel, axis=0)
+        accel_mean = acc.mean(axis=0).astype(np.float32)
 
         step_feature = np.array([data_point.step_in_seq / 1000.0], dtype=np.float32)
 
@@ -232,6 +243,7 @@ class PredictionModel:
                 ac_lag1, ac_lag2, ac_lag3, acf_sum_1_3, frac_above,
                 q25, median, q75, iqr, skewness, kurtosis, cv,
                 trend_slope, trend_r2, curvature,
+                vol_exp, roughness, accel_mean,
                 step_feature,
             ],
             axis=0,

@@ -21,8 +21,28 @@ Use **Tsururu** locally on `train.parquet` to discover strong forecasting strate
   - [x] v8 – same v7 features/architecture but with residual targets `state(t+1) − state(t)` and ensemble averaging of deltas → streaming train R² ≈ **0.4529**, but LB dropped to **~0.3378**; kept as a lab experiment only (code reverted to v7‑style level targets for future training).  
   - [x] v9 – v7 feature set + additional spread features between several highly correlated pairs (e.g. 18–28, 11–30, 0–21, 7–31, 1–28, 3–4); streaming train R² improved further to ≈ **0.4535**, but the leaderboard score was **~0.3461** (slightly below v7), so this is kept as a lab‑only idea and the main code has been reverted to the simpler v7 ensemble.  
   - [x] v10 – Robust Ensemble (Winsorization + 5-Fold CV + Pseudo-LB) → LB ~**0.3513** (New Best).
+  - [x] v11 – Tuned Robust Ensemble (Optuna Hyperparams) → LB ~**0.3540**. Small gain, large gap between Pseudo-LB (0.39) and Real LB remains.
 
-## 1. Offline Exploration with Tsururu (Local Only)
+### 5.6 Next Major Leap: Recurrent Models (v12)
+
+To bridge the gap to the top 10 (0.38+), we likely need to capture long-term context beyond the fixed 10-step window.
+
+- [x] **v12 – GRU (Gated Recurrent Unit):**
+  - **Concept:** Replace the fixed-window MLP with a stateful GRU.
+  - **Result:** Failed. CV R² ~0.316, Pseudo-LB ~0.350. Reverted to v11.
+  - **Lesson:** Explicit lag/rolling features + MLP > Simple GRU for this problem.
+
+- [x] **v13 – Kinematics (Accel, Volatility):**
+  - **Concept:** Add explicit acceleration, volatility expansion, and path roughness features.
+  - **Result:** Regression. LB 0.3529 (vs v11 0.3540).
+  - **Lesson:** Complexity penalty outweighed signal gain.
+
+### 5.7 Future Ideas (Post-v13)
+
+Since v11 (Tuned MLP) is our ceiling so far:
+- **Transformer / Attention:** Might capture context better than GRU, but complex to implement efficiently in the 60m budget.
+- **Hybrid:** MLP + GRU features? (Feed GRU state into MLP as a feature).
+- **Data Augmentation:** Mixup or noise injection during training.
 
 - [x] Install Tsururu and extra deps in local env (no impact on submission image)  
   - [x] `pip install -U tsururu[catboost]` (plus `torch`)  
