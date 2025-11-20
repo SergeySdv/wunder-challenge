@@ -47,9 +47,14 @@ To bridge the gap to the top 10 (0.38+), we likely need to capture long-term con
   - **Result:** Failed. CV ~0.267.
   - **Lesson:** Signal is non-linear and short-term; pure linearity fails.
 
-### 5.7 Future Ideas (Post-v16)
+  - [x] **v17/v18 – CatBoost "Kitchen Sink":**
+  - **Concept:** Massive feature set (1281 dim) + Optuna-tuned CatBoost.
+  - **Result:** Failed. Best R² ~0.26 (subset) / 0.32 (full).
+  - **Lesson:** Trees struggle to beat the MLP on this specific continuous/noisy manifold.
 
-Since v11 (Tuned MLP) remains undefeated after 5 major attempts:
+### 5.7 Future Ideas (Post-v18)
+
+Since v11 (Tuned MLP) remains undefeated after 7 major attempts:
 - **Conclusion:** We are likely near the Bayes Error for this specific feature set and model class.
 - **Final Strategy:** Stick with v11. Focus on clean code and stable submission.- **Transformer / Attention:** Might capture context better than GRU, but complex to implement efficiently in the 60m budget.
 - **Hybrid:** MLP + GRU features? (Feed GRU state into MLP as a feature).

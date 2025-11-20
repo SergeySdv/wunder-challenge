@@ -762,6 +762,22 @@ This log should be updated whenever a new experiment is run (Tsururu configs, ne
   - Short-term microstructure (captured by our MLP's engineered features) is far more predictive than long-term linear trends.
   - **Action**: Reverted to v11.
 
+### 2.18 CatBoost "Kitchen Sink" & Optimization (v17/v18)
+
+- Files:
+  - `train_catboost_experiment.py`: Updated with v13 features (1281 dim).
+  - `optimize_catboost.py`: Ran Optuna tuning with `colsample_bylevel` for speed.
+- Motivation:
+  - Test if Tree models (robust to irrelevant features) could exploit the massive 1300-feature set better than MLP.
+- Results:
+  - **Standard Training (v17)**: Extremely slow (>4 hours/fold). Fold 0 R² ~0.328 (worse than MLP 0.334).
+  - **Optimized "Fast" Training (v18)**: Best Trial R² ~0.264 (on subset).
+  - **Best Params**: `colsample_bylevel=0.05`. The model ignored 95% of features to get any signal, confirming high noise levels.
+- Takeaways:
+  - CatBoost consistently underperforms the Tuned MLP on this dataset (0.32 vs 0.35).
+  - The "Kitchen Sink" approach added more compute cost than predictive value.
+  - **Final Decision**: Stick with v11 MLP.
+
 ---
 
 ## 3. Current Understanding
