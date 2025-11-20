@@ -778,6 +778,21 @@ This log should be updated whenever a new experiment is run (Tsururu configs, ne
   - The "Kitchen Sink" approach added more compute cost than predictive value.
   - **Final Decision**: Stick with v11 MLP.
 
+### 2.19 Ultra-Tuned MLP v19 – Optuna Fine-Tuning (New Best)
+
+- Files:
+  - `optimize_mlp.py`: Ran 50 TPE trials with `weight_decay` and finer ranges.
+  - `train_model.py`: Updated params (`HIDDEN=192`, `DROPOUT=0.2`, `LR=1.6e-4`).
+- Results:
+  - **Optimization**: Found a slightly larger model (192 vs 128) with slower learning rate (1.6e-4 vs 5e-4) worked best.
+  - **CV Mean R²**: **0.3556** (vs 0.3535 in v11).
+  - **Pseudo-LB**: **0.3996** (vs 0.3943 in v11).
+  - **Public Leaderboard**: **0.3563** (New Personal Best).
+- Takeaways:
+  - Rigorous hyperparameter tuning squeezed an extra +0.0023 out of the architecture.
+  - This confirms that the MLP architecture is robust, but we are hitting the asymptotic limit of what this feature set can provide.
+  - **Current Status**: v19 is the production model.
+
 ---
 
 ## 3. Current Understanding

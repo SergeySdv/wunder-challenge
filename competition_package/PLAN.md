@@ -52,11 +52,17 @@ To bridge the gap to the top 10 (0.38+), we likely need to capture long-term con
   - **Result:** Failed. Best R² ~0.26 (subset) / 0.32 (full).
   - **Lesson:** Trees struggle to beat the MLP on this specific continuous/noisy manifold.
 
-### 5.7 Future Ideas (Post-v18)
+  - [x] **v19 – Ultra-Tuned MLP (Optuna):**
+  - **Concept:** Deep Bayesian optimization of MLP hyperparameters (Hidden=192, Drop=0.2, LR=1.6e-4).
+  - **Result:** Success. **LB 0.3563** (New Personal Best).
+  - **Status:** **MILESTONE REACHED.** This is the strongest model to date.
 
-Since v11 (Tuned MLP) remains undefeated after 7 major attempts:
-- **Conclusion:** We are likely near the Bayes Error for this specific feature set and model class.
-- **Final Strategy:** Stick with v11. Focus on clean code and stable submission.- **Transformer / Attention:** Might capture context better than GRU, but complex to implement efficiently in the 60m budget.
+### 5.7 Future Ideas (Post-v19)
+
+We have likely reached the limit of the current feature engineering + MLP paradigm. Future breakthroughs would require:
+- **Different Data:** External data or fundamentally new feature concepts.
+- **Ensembling:** Combining v19 with a radically different model (like a Transformer or Tree) if inference time permits.
+- **Meta-Learning:** Training on other datasets to transfer knowledge.- **Transformer / Attention:** Might capture context better than GRU, but complex to implement efficiently in the 60m budget.
 - **Hybrid:** MLP + GRU features? (Feed GRU state into MLP as a feature).
 - **Data Augmentation:** Mixup or noise injection during training.
 
