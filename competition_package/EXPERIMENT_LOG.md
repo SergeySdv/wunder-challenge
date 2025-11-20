@@ -748,6 +748,20 @@ This log should be updated whenever a new experiment is run (Tsururu configs, ne
   - The simpler v11 model remains the strongest baseline.
   - **Action**: Reverted codebase to v11.
 
+### 2.17 NLinear v16 – Long Context Linear Model (Failed)
+
+- Files:
+  - `train_model.py` (NLinear implementation with 336-step lookback).
+- Motivation:
+  - Deep Research suggested simple linear models (DLinear/NLinear) with long history often beat Transformers and RNNs on financial time series.
+- Results:
+  - **CV Mean R²**: ~0.2673 (Massive regression vs v11's 0.354).
+  - **Pseudo-LB**: ~0.3076.
+- Takeaways:
+  - The assumption that "Long History + Linearity" wins was incorrect for this specific dataset.
+  - Short-term microstructure (captured by our MLP's engineered features) is far more predictive than long-term linear trends.
+  - **Action**: Reverted to v11.
+
 ---
 
 ## 3. Current Understanding
@@ -774,3 +788,13 @@ This log should be updated whenever a new experiment is run (Tsururu configs, ne
 - New Features: Vol Expansion, Path Roughness, Accel Mean
 - Pseudo-LB Score: **0.39432**
 - CV Mean R2: **0.35345**
+
+
+## v14 AE-ResNet (Log Lags)
+- Pseudo-LB Score: **0.37158**
+- CV Mean R2: **0.34954**
+
+
+## v16 NLinear (Lookback 336)
+- Pseudo-LB Score: **0.30760**
+- CV Mean R2: **0.26727**

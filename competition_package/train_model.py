@@ -115,50 +115,6 @@ def _compute_trend_features(lag_slice: np.ndarray):
         
     return slope, r2, curvature
 
-# --- v13 New Features ---
-
-def _compute_volatility_expansion(lag_slice: np.ndarray, std_full: np.ndarray) -> np.ndarray:
-    """Ratio of recent volatility (last 5) to full window volatility (last 10)."""
-    n_lags = lag_slice.shape[0]
-    half_idx = n_lags // 2
-    
-    # Std of the second half (recent)
-    std_recent = lag_slice[half_idx:].std(axis=0)
-    
-    # Ratio: > 1 means expanding, < 1 means contracting
-    ratio = std_recent / (std_full + 1e-8)
-    return ratio.astype(np.float32)
-
-def _compute_path_roughness(lag_slice: np.ndarray) -> np.ndarray:
-    """
-    Efficiency Ratio / Roughness.
-    Sum of absolute step changes / Total absolute displacement.
-    1.0 = straight line (efficient). High value = choppy/rough.
-    """
-    # Step changes
-    diffs = np.diff(lag_slice, axis=0)
-    path_len = np.sum(np.abs(diffs), axis=0)
-    
-    # Total displacement (last - first)
-    displacement = np.abs(lag_slice[-1] - lag_slice[0])
-    
-    # Roughness = Path / Displacement. 
-    # If displacement is 0, roughness is high (or undefined, we set to path_len)
-    roughness = path_len / (displacement + 1e-8)
-    
-    return roughness.astype(np.float32)
-
-def _compute_acceleration(lag_slice: np.ndarray) -> np.ndarray:
-    """Mean of the 2nd derivative."""
-    # 1st diff: Velocity
-    vel = np.diff(lag_slice, axis=0)
-    # 2nd diff: Acceleration
-    acc = np.diff(vel, axis=0)
-    
-    mean_acc = acc.mean(axis=0)
-    return mean_acc.astype(np.float32)
-
-
 def build_supervised_dataset(
     df: pd.DataFrame, 
     clip_min: np.ndarray, 
@@ -201,12 +157,6 @@ def build_supervised_dataset(
             
             q25, median, q75, iqr, skewness, kurtosis, cv = _compute_robust_window_stats(lag_slice, mean_last, std_last)
             trend_slope, trend_r2, curvature = _compute_trend_features(lag_slice)
-            
-            # v13 New Features
-            vol_exp = _compute_volatility_expansion(lag_slice, std_last)
-            roughness = _compute_path_roughness(lag_slice)
-            accel_mean = _compute_acceleration(lag_slice)
-            
             step_val = np.array([steps[idx] / 1000.0], dtype=np.float32)
             
             features = np.concatenate([
@@ -214,7 +164,6 @@ def build_supervised_dataset(
                 ac_lag1, ac_lag2, ac_lag3, acf_sum_1_3, frac_above,
                 q25, median, q75, iqr, skewness, kurtosis, cv,
                 trend_slope, trend_r2, curvature,
-                vol_exp, roughness, accel_mean, # Added v13
                 step_val
             ])
             X_list.append(features)
@@ -295,7 +244,7 @@ def train_one_fold(X_train, y_train, X_val, y_val, input_dim, output_dim, fold_i
 # --- Main Pipeline ---
 
 def main():
-    print("--- v13 Kinematics & Volatility Experiment (New Features) ---")
+    print("--- v11 Tuned Robust MLP Experiment (Reverted from v16) ---")
     
     dataset_path = os.path.join(BASE_DIR, "datasets", "train.parquet")
     df = load_dataset(dataset_path)
@@ -355,7 +304,6 @@ def main():
     fold_results = []
     input_dim = X_dev.shape[1]
     output_dim = y_dev.shape[1]
-    print(f"Input Dim: {input_dim} (Increased for v13)")
     
     print("Starting 5-Fold CV...")
     for fold_i, (train_idx_seq, val_idx_seq) in enumerate(kf.split(dev_ids)):
@@ -405,14 +353,7 @@ def main():
     
     preds_ensemble = preds_accum / CV_FOLDS
     pseudo_r2s = [r2_score(y_pseudo[:, i], preds_ensemble[:, i]) for i in range(output_dim)]
-    mean_pseudo = np.mean(pseudo_r2s)
-    print(f"Pseudo-LB Mean R2: {mean_pseudo:.5f}")
-    
-    with open(os.path.join(BASE_DIR, "EXPERIMENT_LOG.md"), "a") as f:
-        f.write(f"\n\n## v13 Kinematics & Volatility\n")
-        f.write(f"- New Features: Vol Expansion, Path Roughness, Accel Mean\n")
-        f.write(f"- Pseudo-LB Score: **{mean_pseudo:.5f}**\n")
-        f.write(f"- CV Mean R2: **{np.mean(fold_results):.5f}**\n")
+    print(f"Pseudo-LB Mean R2: {np.mean(pseudo_r2s):.5f}")
 
 if __name__ == "__main__":
     main()

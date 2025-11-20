@@ -32,15 +32,26 @@ To bridge the gap to the top 10 (0.38+), we likely need to capture long-term con
   - **Result:** Failed. CV R² ~0.316, Pseudo-LB ~0.350. Reverted to v11.
   - **Lesson:** Explicit lag/rolling features + MLP > Simple GRU for this problem.
 
-- [x] **v13 – Kinematics (Accel, Volatility):**
+  - [x] **v13 – Kinematics (Accel, Volatility):**
   - **Concept:** Add explicit acceleration, volatility expansion, and path roughness features.
   - **Result:** Regression. LB 0.3529 (vs v11 0.3540).
   - **Lesson:** Complexity penalty outweighed signal gain.
 
-### 5.7 Future Ideas (Post-v13)
+  - [x] **v14 – ResNet-AE (Log Lags):**
+  - **Concept:** Deep Residual Network with Denoising Autoencoder + Logarithmic Lags.
+  - **Result:** Failed. CV ~0.349.
+  - **Lesson:** Raw log-lags < Explicit engineered features.
 
-Since v11 (Tuned MLP) is our ceiling so far:
-- **Transformer / Attention:** Might capture context better than GRU, but complex to implement efficiently in the 60m budget.
+  - [x] **v16 – NLinear (Long Context):**
+  - **Concept:** Simple linear mapping from last 336 steps to next step.
+  - **Result:** Failed. CV ~0.267.
+  - **Lesson:** Signal is non-linear and short-term; pure linearity fails.
+
+### 5.7 Future Ideas (Post-v16)
+
+Since v11 (Tuned MLP) remains undefeated after 5 major attempts:
+- **Conclusion:** We are likely near the Bayes Error for this specific feature set and model class.
+- **Final Strategy:** Stick with v11. Focus on clean code and stable submission.- **Transformer / Attention:** Might capture context better than GRU, but complex to implement efficiently in the 60m budget.
 - **Hybrid:** MLP + GRU features? (Feed GRU state into MLP as a feature).
 - **Data Augmentation:** Mixup or noise injection during training.
 
