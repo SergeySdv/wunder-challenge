@@ -6,13 +6,14 @@ from torch import nn
 from sklearn.model_selection import KFold
 from sklearn.metrics import r2_score
 from typing import Tuple, List, Set, Optional, Dict
+import argparse
 
 # --- Configuration ---
 N_LAGS = 10
-HIDDEN_SIZE = 128  # Optimized
-N_EPOCHS = 20
+HIDDEN_SIZE = 192  # Optimized by Optuna (was 128)
+N_EPOCHS = 25      # Increased for lower LR
 BATCH_SIZE = 512   # Optimized
-LR = 5e-4          # Optimized
+LR = 1.6e-4        # Optimized (was 5e-4)
 WEIGHTS_DIR = "models"
 PSEUDO_LB_SEED = 999 
 CV_FOLDS = 5
@@ -119,10 +120,11 @@ def build_supervised_dataset(
     df: pd.DataFrame, 
     clip_min: np.ndarray, 
     clip_max: np.ndarray
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     feature_cols = [str(i) for i in range(32)]
     X_list = []
     y_list = []
+    prev_list = []
     
     for seq_ix, df_seq in df.groupby("seq_ix"):
         df_seq = df_seq.sort_values("step_in_seq")
@@ -168,8 +170,9 @@ def build_supervised_dataset(
             ])
             X_list.append(features)
             y_list.append(states[idx+1].astype(np.float32))
+            prev_list.append(states[idx].astype(np.float32))
             
-    return np.vstack(X_list), np.vstack(y_list)
+    return np.vstack(X_list), np.vstack(y_list), np.vstack(prev_list)
 
 # --- Model Architecture ---
 
@@ -179,10 +182,10 @@ class LagMLP(nn.Module):
         self.net = nn.Sequential(
             nn.Linear(input_dim, 2 * hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.3),
+            nn.Dropout(0.2), # Optuna: 0.21
             nn.Linear(2 * hidden_dim, hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.3),
+            nn.Dropout(0.2),
             nn.Linear(hidden_dim, output_dim),
         )
 
@@ -244,7 +247,12 @@ def train_one_fold(X_train, y_train, X_val, y_val, input_dim, output_dim, fold_i
 # --- Main Pipeline ---
 
 def main():
-    print("--- v11 Tuned Robust MLP Experiment (Reverted from v16) ---")
+    parser = argparse.ArgumentParser(description="Train Lag-MLP (v19 features).")
+    parser.add_argument("--target_mode", choices=["level", "residual"], default="level", help="Prediction target: next level or next minus current (residual).")
+    parser.add_argument("--prefix", default="lag_mlp", help="Prefix for saved model/normalization files.")
+    args = parser.parse_args()
+
+    print(f"--- v19 Ultra-Tuned MLP (Optuna Optimized) | target={args.target_mode} | prefix={args.prefix} ---")
     
     dataset_path = os.path.join(BASE_DIR, "datasets", "train.parquet")
     df = load_dataset(dataset_path)
@@ -264,14 +272,22 @@ def main():
     clip_min, clip_max = compute_winsorization_bounds(df_dev, 0.001, 0.999)
     
     print("Building datasets...")
-    X_dev, y_dev = build_supervised_dataset(df_dev, clip_min, clip_max)
-    X_pseudo, y_pseudo = build_supervised_dataset(df_pseudo, clip_min, clip_max)
+    X_dev, y_dev_next, prev_dev = build_supervised_dataset(df_dev, clip_min, clip_max)
+    X_pseudo, y_pseudo_next, prev_pseudo = build_supervised_dataset(df_pseudo, clip_min, clip_max)
+
+    if args.target_mode == "residual":
+        y_dev = y_dev_next - prev_dev
+        y_pseudo = y_pseudo_next - prev_pseudo
+    else:
+        y_dev = y_dev_next
+        y_pseudo = y_pseudo_next
     
     x_mean = X_dev.mean(axis=0)
     x_std = X_dev.std(axis=0) + 1e-8
     
     os.makedirs(os.path.join(BASE_DIR, WEIGHTS_DIR), exist_ok=True)
-    norm_path = os.path.join(BASE_DIR, WEIGHTS_DIR, "lag_mlp_normalization.npz")
+    norm_filename = f"{args.prefix}_normalization.npz" if args.prefix != "lag_mlp" else "lag_mlp_normalization.npz"
+    norm_path = os.path.join(BASE_DIR, WEIGHTS_DIR, norm_filename)
     np.savez(
         norm_path, 
         x_mean=x_mean, x_std=x_std, 
@@ -323,13 +339,14 @@ def main():
         )
         fold_results.append(best_r2)
         
-        save_path = os.path.join(BASE_DIR, WEIGHTS_DIR, f"lag_mlp_fold{fold_i}.pth")
+        save_path = os.path.join(BASE_DIR, WEIGHTS_DIR, f"{args.prefix}_fold{fold_i}.pth")
         torch.save({
             "state_dict": best_state,
             "input_dim": input_dim,
             "output_dim": output_dim,
             "hidden_dim": HIDDEN_SIZE,
-            "n_lags": N_LAGS
+            "n_lags": N_LAGS,
+            "target_mode": args.target_mode
         }, save_path)
         
     print(f"\nMean CV R2: {np.mean(fold_results):.5f} +/- {np.std(fold_results):.5f}")
@@ -338,7 +355,7 @@ def main():
     print("Evaluating on Pseudo-LB...")
     models = []
     for fold_i in range(CV_FOLDS):
-        path = os.path.join(BASE_DIR, WEIGHTS_DIR, f"lag_mlp_fold{fold_i}.pth")
+        path = os.path.join(BASE_DIR, WEIGHTS_DIR, f"{args.prefix}_fold{fold_i}.pth")
         ckpt = torch.load(path)
         m = LagMLP(input_dim, HIDDEN_SIZE, output_dim)
         m.load_state_dict(ckpt["state_dict"])
@@ -352,7 +369,11 @@ def main():
             preds_accum += m(X_tens).numpy()
     
     preds_ensemble = preds_accum / CV_FOLDS
-    pseudo_r2s = [r2_score(y_pseudo[:, i], preds_ensemble[:, i]) for i in range(output_dim)]
+    if args.target_mode == "residual":
+        preds_level = preds_ensemble + prev_pseudo
+        pseudo_r2s = [r2_score(y_pseudo_next[:, i], preds_level[:, i]) for i in range(output_dim)]
+    else:
+        pseudo_r2s = [r2_score(y_pseudo[:, i], preds_ensemble[:, i]) for i in range(output_dim)]
     print(f"Pseudo-LB Mean R2: {np.mean(pseudo_r2s):.5f}")
 
 if __name__ == "__main__":

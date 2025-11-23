@@ -130,3 +130,44 @@ We've provided a few files to help you:
 *   `examples/simple/solution.py`: A minimal working example to show the required submission format.
 
 Good luck, and have fun building! We can't wait to see what you create.
+
+## Current Models & How to Run
+
+Use the repo venv (`../.venv/bin/python` from this directory) for all commands.
+
+- **v19 Lag-MLP (baseline / submission)**
+  - Train: `../.venv/bin/python train_model.py --target_mode level`
+  - Weights: `models/lag_mlp_fold*.pth`, normalization `models/lag_mlp_normalization.npz`.
+  - Evaluate streaming locally: `../.venv/bin/python solution.py`
+  - Leaderboard: LB 0.3563. Stable fallback.
+
+- **Level+Residual Blend (submission option)**
+  - Train residual copy: `../.venv/bin/python train_model.py --target_mode residual --prefix lag_mlp_residual`
+  - Inference blend (alpha=0.6 best so far) lives in `solution_blend.py`; to submit, copy to `solution.py` before zipping.
+  - Leaderboard: LB 0.3571 (best to date).
+
+- **CatBoost (offline oracle)**
+  - Run CV: `../.venv/bin/python train_catboost_experiment.py --save_model_dir models --save_prefix catboost_v19 --save_importance`
+  - Feature importances only (no retrain) for a saved model: `../.venv/bin/python dump_catboost_importance.py --model_path models/catboost_v19_fold0.cbm --out_path cat_importance.csv`
+  - Not a submission candidate (slower, lower CV than MLP).
+
+- **LSTM baseline (raw 32-dim)**
+  - Quick pilot (subset): `../.venv/bin/python train_lstm_experiment.py --window 30 --hidden 256 --layers 2 --lr 5e-4 --epochs 10 --subset 120000`
+  - Outcome: Val R² ~0.31; not beating v19. Keep as reference.
+
+- **Micro-Mamba (SSD-style, CPU-friendly)**
+  - Pilot: `../.venv/bin/python train_mamba_experiment.py --window 30 --d_model 64 --d_state 32 --layers 2 --d_conv 4 --subset 120000 --residual_target`
+  - Designed to test SSM + conv + gating; next high-upside experiment. If it lifts pseudo-LB, consider full train and streaming submission.
+
+- **LSTM submission (raw window)**
+  - Train + save: `../.venv/bin/python train_lstm_experiment.py --window 30 --hidden 256 --layers 2 --lr 5e-4 --epochs 20 --save_path models/lstm_submission.pth --save_norm models/lstm_submission_norm.npz --save_meta models/lstm_submission_meta.json`
+  - Streaming code: `solution_lstm.py` loads the saved artifacts; copy to `solution.py` before zipping if you want to submit this variant.
+  - Note: current pilot underperforms v19; use mainly for experimentation or checks.
+
+- **Other archived models**
+  - GRU (v12) underperformed (CV ~0.316); XGBoost/ResNet/NLinear artifacts remain in `models/` for reference only.
+
+### Submission Packaging
+- Ensure `solution.py` at repo root with the desired model (copy `solution_blend.py` over if submitting blend).
+- Include required weight/normalization files in the zip: MLP level (`lag_mlp_fold*.pth`, `lag_mlp_normalization.npz`), plus residual weights/normalization if using blend.
+- Zip contents from `competition_package/` (do not nest `solution.py` in a subfolder).

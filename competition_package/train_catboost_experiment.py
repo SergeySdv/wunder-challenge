@@ -1,20 +1,21 @@
 import os
+import json
 import numpy as np
 import pandas as pd
 from catboost import CatBoostRegressor, Pool
 from sklearn.metrics import r2_score
 from sklearn.model_selection import KFold
-import json
+import argparse
 
 # --- Configuration ---
 N_LAGS = 10
 PSEUDO_LB_SEED = 999
 CV_FOLDS = 5
 CV_SEED = 42
-ITERATIONS = 1000 # More trees for "Kitchen Sink"
+ITERATIONS = 500  # fewer trees for faster turnaround
 LEARNING_RATE = 0.05
 DEPTH = 6
-SUBSAMPLE = 0.8 # Row subsampling for speed/robustness
+SUBSAMPLE = 0.8  # Row subsampling for speed/robustness
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -32,8 +33,44 @@ def compute_winsorization_bounds(df: pd.DataFrame, lower_q=0.001, upper_q=0.999)
     upper = np.quantile(data, upper_q, axis=0).astype(np.float32)
     return lower, upper
 
-# --- Feature Engineering (The "Kitchen Sink") ---
-# Copying all helpers including v13 Kinematics
+
+def build_feature_names() -> list:
+    names = []
+    for k in range(10):
+        for f in range(32):
+            names.append(f"lag[{k}]/feat{f}")
+    for k in range(10):
+        for f in range(32):
+            names.append(f"delta[{k}]/feat{f}")
+    blocks = [
+        ("mean", 32),
+        ("std", 32),
+        ("ac1", 32),
+        ("ac2", 32),
+        ("ac3", 32),
+        ("acf_sum", 32),
+        ("frac_above_mean", 32),
+        ("q25", 32),
+        ("median", 32),
+        ("q75", 32),
+        ("iqr", 32),
+        ("skew", 32),
+        ("kurt", 32),
+        ("cv", 32),
+        ("slope", 32),
+        ("r2", 32),
+        ("curvature", 32),
+        ("step_val", 1),
+    ]
+    for name, dim in blocks:
+        if dim == 1:
+            names.append(name)
+        else:
+            for f in range(dim):
+                names.append(f"{name}/feat{f}")
+    return names
+
+# --- Feature Engineering (v19 feature set: v6 streaming-safe features, no v13 kinematics) ---
 
 def _compute_lag1_autocorr(lag_slice):
     x = lag_slice[:-1, :]
@@ -102,23 +139,6 @@ def _compute_trend_features(lag_slice):
     
     return slope, r2, curvature
 
-# v13 Features
-def _compute_volatility_expansion(lag_slice, std_last):
-    n = lag_slice.shape[0]
-    std_recent = lag_slice[n//2:].std(axis=0)
-    return (std_recent / (std_last + 1e-8)).astype(np.float32)
-
-def _compute_path_roughness(lag_slice):
-    diffs = np.diff(lag_slice, axis=0)
-    path = np.sum(np.abs(diffs), axis=0)
-    disp = np.abs(lag_slice[-1] - lag_slice[0])
-    return (path / (disp + 1e-8)).astype(np.float32)
-
-def _compute_acceleration(lag_slice):
-    vel = np.diff(lag_slice, axis=0)
-    acc = np.diff(vel, axis=0)
-    return acc.mean(axis=0).astype(np.float32)
-
 def build_dataset(df, clip_min, clip_max):
     feature_cols = [str(i) for i in range(32)]
     X_list, y_list = [], []
@@ -153,11 +173,6 @@ def build_dataset(df, clip_min, clip_max):
             q25, median, q75, iqr, skew, kurt, cv = _compute_robust_window_stats(lag_slice, mean_last, std_last)
             slope, r2, curve = _compute_trend_features(lag_slice)
             
-            # v13 Features
-            vol_exp = _compute_volatility_expansion(lag_slice, std_last)
-            rough = _compute_path_roughness(lag_slice)
-            accel = _compute_acceleration(lag_slice)
-            
             step_val = np.array([steps[idx] / 1000.0], dtype=np.float32)
             
             features = np.concatenate([
@@ -165,7 +180,6 @@ def build_dataset(df, clip_min, clip_max):
                 ac1, ac2, ac3, acf_sum, frac,
                 q25, median, q75, iqr, skew, kurt, cv,
                 slope, r2, curve,
-                vol_exp, rough, accel,
                 step_val
             ])
             
@@ -175,7 +189,14 @@ def build_dataset(df, clip_min, clip_max):
     return np.vstack(X_list), np.vstack(y_list)
 
 def main():
-    print("--- v17 Kitchen Sink CatBoost Experiment ---")
+    parser = argparse.ArgumentParser(description="CatBoost MultiRMSE on v19 feature set")
+    parser.add_argument("--subset", type=int, default=None, help="Optional row subsample for speed (e.g., 120000).")
+    parser.add_argument("--save_model_dir", type=str, default=None, help="Directory to save fold models (.cbm).")
+    parser.add_argument("--save_prefix", type=str, default="catboost_v19", help="Prefix for saved models/importances.")
+    parser.add_argument("--save_importance", action="store_true", help="Save feature importances CSV for first fold.")
+    args = parser.parse_args()
+
+    print("--- CatBoost (v19 feature set) ---")
     
     dataset_path = os.path.join(BASE_DIR, "datasets", "train.parquet")
     df = load_dataset(dataset_path)
@@ -197,6 +218,7 @@ def main():
     # 5-Fold CV
     kf = KFold(n_splits=CV_FOLDS, shuffle=True, random_state=CV_SEED)
     fold_scores = []
+    feature_names = build_feature_names()
     
     # Feature Names (approximate, for importance)
     # Base 32, Lags 10 -> 320 names
@@ -220,6 +242,10 @@ def main():
         print("  Building datasets...")
         X_tr, y_tr = build_dataset(df_tr, clip_min, clip_max)
         X_val, y_val = build_dataset(df_val, clip_min, clip_max)
+        if args.subset is not None and args.subset < len(X_tr):
+            idx = np.random.choice(len(X_tr), args.subset, replace=False)
+            X_tr = X_tr[idx]
+            y_tr = y_tr[idx]
         
         print(f"  Training shape: {X_tr.shape}")
         
@@ -247,31 +273,35 @@ def main():
         fold_scores.append(mean_r2)
         print(f"  Fold {fold_i} R2: {mean_r2:.5f}")
         
-        # Only save feature importance from first fold to avoid clutter
+        # Save model per fold if requested
+        if args.save_model_dir:
+            os.makedirs(args.save_model_dir, exist_ok=True)
+            model_path = os.path.join(args.save_model_dir, f"{args.save_prefix}_fold{fold_i}.cbm")
+            model.save_model(model_path)
+            print(f"  Saved fold {fold_i} model to {model_path}")
+
+        # Save / print feature importance from first fold to avoid clutter
         if fold_i == 0:
             importances = model.get_feature_importance(train_pool)
-            # Save top indices
             top_indices = np.argsort(importances)[::-1][:50]
             print("\nTop 20 Feature Indices & Scores:")
             for idx in top_indices[:20]:
-                print(f"  Idx {idx}: {importances[idx]:.4f}")
+                print(f"  Idx {idx}: {importances[idx]:.4f} ({feature_names[idx] if idx < len(feature_names) else 'unknown'})")
+            if args.save_importance:
+                os.makedirs(args.save_model_dir or BASE_DIR, exist_ok=True)
+                imp_path = os.path.join(args.save_model_dir or BASE_DIR, f"{args.save_prefix}_importance.csv")
+                df_imp = pd.DataFrame({"feature": feature_names, "importance": importances})
+                df_imp.sort_values("importance", ascending=False).to_csv(imp_path, index=False)
+                print(f"  Saved feature importances to {imp_path}")
     
     print(f"\nMean CV R2: {np.mean(fold_scores):.5f}")
     
-    # Pseudo-LB
-    print("Evaluating on Pseudo-LB...")
+    # Pseudo-LB using last trained model (single model proxy)
+    print("Evaluating on Pseudo-LB (single model)...")
     X_pseudo, y_pseudo = build_dataset(df_pseudo, clip_min, clip_max)
-    
-    # Train one final model on full dev set for Pseudo check? 
-    # Or just use last fold model? Ensemble is better.
-    # For quick check, let's just use the last fold model (model variable still holds it).
-    # Ideally we'd ensemble all 5, but we aren't saving them to disk to save space.
-    # Wait, standard procedure is ensemble.
-    # Let's just report the LAST fold's performance on Pseudo-LB as a proxy.
-    
     preds_pseudo = model.predict(X_pseudo)
     pseudo_r2s = [r2_score(y_pseudo[:, i], preds_pseudo[:, i]) for i in range(32)]
-    print(f"Pseudo-LB R2 (Single Fold): {np.mean(pseudo_r2s):.5f}")
+    print(f"Pseudo-LB R2: {np.mean(pseudo_r2s):.5f}")
 
 if __name__ == "__main__":
     main()

@@ -57,6 +57,12 @@ To bridge the gap to the top 10 (0.38+), we likely need to capture long-term con
   - **Result:** Success. **LB 0.3563** (New Personal Best).
   - **Status:** **MILESTONE REACHED.** This is the strongest model to date.
 
+- [x] **Residual / Blend (v19 features):**
+  - Trained residual-target copy (same v19 features/hparams) and blended with the level ensemble.
+  - Pseudo-LB: residual-only ~0.3957; blend α=0.6 ~0.4039 (small lift vs v19 ~0.3996).
+  - Streaming train R² for blend ~0.405 (regresses vs level-only ~0.44).
+  - Status: experimental only; keep v19 level-only as the baseline. Blend zip: `submission_mlp_blend_alpha0_6.zip` (pending LB).
+
 ### 5.7 Future Ideas (Post-v19)
 
 We have likely reached the limit of the current feature engineering + MLP paradigm. Future breakthroughs would require:

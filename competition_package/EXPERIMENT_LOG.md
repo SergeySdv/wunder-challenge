@@ -793,6 +793,79 @@ This log should be updated whenever a new experiment is run (Tsururu configs, ne
   - This confirms that the MLP architecture is robust, but we are hitting the asymptotic limit of what this feature set can provide.
   - **Current Status**: v19 is the production model.
 
+### 2.20 Triplet + WVTR (Cross-Sectional + Wavelet) – Regressed
+
+- Files:
+  - `train_model.py` and `solution.py`: added triplet imbalance block (120 dims on curated feature set [0,2,4,7,11,13,18,20,28,31]) and WVTR (32 dims Haar noise/trend ratio).
+  - `models/lag_mlp_fold*.pth`, `lag_mlp_normalization.npz` regenerated with the new feature order.
+- Offline results:
+  - 5-Fold CV Mean R²: **0.35512 ± 0.01306** (≈ flat vs v19).
+  - Pseudo-LB Mean R²: **0.39780** (≈ flat vs v19).
+- Streaming train evaluation:
+  - Mean R² on `train.parquet`: **0.4035** (regression vs prior ~0.44).
+- Leaderboard:
+  - `submission_mlp_v20_triplet_wvtr.zip`: **0.3549** (worse than v19’s **0.3563**).
+- Takeaways:
+  - The added blocks did not improve generalization; they reduced in-distribution fit and slightly hurt LB.
+  - Action: keep v19 as the baseline; treat triplet+WVTR as a negative result. Revert to v19 feature set for submissions.
+
+### 2.21 Level + Residual Blend (v19 features, residual target copy)
+
+- Files:
+  - `train_model.py` now supports `--target_mode {level,residual}` and `--prefix` to train residual-target models.
+  - Residual weights: `models/lag_mlp_residual_fold*.pth`, normalization: `lag_mlp_residual_normalization.npz`.
+  - Blended inference: `solution_blend.py` loads level + residual ensembles and blends `pred = alpha*level + (1-alpha)*(state + delta_pred)`.
+- Offline results:
+  - Residual training (25 epochs, v19 features): CV R² (residual target) **0.5241 ± 0.0274**.
+  - Pseudo-LB (reconstructed level): **0.39569** (slightly below level v19 ~0.3996).
+  - Blend Pseudo-LB sweep (alpha on level):  
+    - α=0.5 → **0.40373**  
+    - α=0.6 → **0.40388** (best)  
+    - α=0.7 → **0.40353**
+- Streaming train eval:
+  - Blend α=0.5 Mean R² on `train.parquet`: **0.4053** (regresses vs level-only v19 ~0.44).
+- Packaging:
+  - `submissions/submission_mlp_blend_alpha0_6_fix.zip` (blend with α=0.6, level + residual weights, both normalizations) – **LB 0.3571** (slightly above v19 0.3563).
+  - Earlier `submission_mlp_blend_alpha0_6.zip` failed CHECK (missing solution.py entrypoint).
+- Takeaways:
+  - Residual + blend offers a small Pseudo-LB lift and delivered a marginal LB gain (0.3571 vs 0.3563). Streaming train R² is still lower than level-only, so keep v19 level-only as the stable fallback; blend (α=0.6) is currently the top LB score.
+
+---
+
+### 2.22 CatBoost v19 (re-run, 500 iters, diagonal features only)
+
+- Files:
+  - `train_catboost_experiment.py` (v19 feature set: 1185 dims; 10 lags + deltas + rolling stats + autocorr/persistence/robust/trend).
+- Motivation:
+  - Refresh CatBoost baseline on the clean v19 set after reverting v20.
+- Results (5-Fold CV, 500 trees, depth=6, lr=0.05, subsample=0.8, early stop 50):
+  - Fold R²: [0.3231, 0.3561, 0.3389, 0.3385, 0.3638]
+  - **Mean CV R²: 0.3441**
+  - **Pseudo-LB R² (single model from last fold): 0.3837**
+- Top-20 feature importances (Fold 0) mapped to names:
+  - Lags: lag[9]/feat17, lag[9]/feat19, lag[9]/feat0, lag[9]/feat10, lag[9]/feat2, lag[9]/feat16, lag[8]/feat23, lag[9]/feat5
+  - Means: mean/feat3, mean/feat8, mean/feat7, mean/feat26, mean/feat29, mean/feat18, mean/feat20
+  - Robust: q25/feat26, q25/feat30, median/feat26, q75/feat29
+  - Vol: std/feat4
+- Takeaways:
+  - Still below the MLP v19 (CV ~0.355–0.356, Pseudo-LB ~0.3996) and below the blend LB.
+  - Training is slow (~2h per run). Not a submission candidate; keep as reference only.
+
+---
+
+### 2.23 LSTM Baseline (raw 32-dim, short context)
+
+- Files:
+  - `train_lstm_experiment.py` (sequence-to-one on raw values; no engineered features).
+- Settings (quick pilot):
+  - Window=30, hidden=256, layers=2, lr=5e-4, epochs=10, batch=512, subset=120k samples (winsorized, normalized).
+  - Train/val split: 90% dev / 10% val (by seq); Pseudo-LB split 10% seqs.
+- Results:
+  - Val R²: **0.3115**
+  - Pseudo-LB R²: **0.3957** (note: subset + different target setup; interpret with caution).
+- Takeaways:
+  - Val underperforms v19 MLP (~0.355–0.356). Pseudo-LB likely optimistic; overall not a replacement yet. Keep as reference; try full-data or residual-target variant only if time allows.
+
 ---
 
 ## 3. Current Understanding

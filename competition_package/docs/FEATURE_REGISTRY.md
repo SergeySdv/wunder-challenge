@@ -2,8 +2,8 @@
 
 This document serves as the **Single Source of Truth** for all features used in the `WunderSex` project. It maps feature names to their mathematical definitions, motivations, and the experiment version where they were introduced.
 
-**Current Feature Set Version:** v13 (Kinematics & Volatility)
-**Total Input Dimension:** ~1281 (v13) / ~1185 (v11)
+**Current Feature Set Version:** v19 (Optuna-Tuned MLP; streaming-safe v6 feature set)
+**Total Input Dimension:** ~1185 (v19/v11)
 
 ---
 
@@ -65,6 +65,7 @@ Before ANY feature calculation, the raw input window `x` is **Winsorized** (Clip
 
 ### Normalization
 After feature concatenation, the entire vector is **Standardized** (`(x - mean) / std`) using global statistics learned from the training set.
+The normalization file (`models/lag_mlp_normalization.npz`) stores these stats, clip bounds, and `n_lags`. Regenerate it (re-run `train_model.py`) whenever the feature set changes.
 
 ---
 
@@ -78,6 +79,7 @@ Features tried in experiments but removed due to poor performance or leakage.
 | **Residual Targets** | v8 | Predict `y_{t+1} - y_t`. Improved Training R² but degraded Leaderboard (0.3378). Level targets generalize better. |
 | **Pair Spreads** | v9 | `x_i - x_j` for correlated pairs. Improved Training R² slightly but added complexity for no LB gain. |
 | **SeqGRU Embedding** | v12 | Raw sequence passed to RNN. Failed to beat explicit features (LB ~0.350 vs MLP 0.354). |
+| **Triplet Imbalance + WVTR Block** | v20 | Added 152 dims; CV/Pseudo-LB flat, streaming R² regressed, LB 0.3549 (< v19 0.3563). Not worth keeping. |
 
 ---
 
