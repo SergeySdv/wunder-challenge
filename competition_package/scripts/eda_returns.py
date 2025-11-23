@@ -91,11 +91,11 @@ def main():
             "savefig.facecolor": "#121212"
         })
 
-        fig, ax = plt.subplots(figsize=(16, 14))
-        
         # Custom colormap: Red (neg) -> Dark -> Green (pos)
         cmap = sns.diverging_palette(10, 130, as_cmap=True, s=99, l=30, center="dark")
 
+        # 1. Plot Clustered Heatmap
+        fig, ax = plt.subplots(figsize=(16, 14))
         sns.heatmap(
             corr_clustered,
             cmap=cmap,
@@ -139,6 +139,53 @@ def main():
         plt.savefig(heatmap_path, dpi=200)
         plt.close()
         print(f"Saved clustered correlation heatmap to {heatmap_path}")
+
+        # 2. Plot Direct (Raw Order) Heatmap
+        fig, ax = plt.subplots(figsize=(16, 14))
+        sns.heatmap(
+            corr, # Use the raw 'corr' dataframe here
+            cmap=cmap,
+            vmin=-1,
+            vmax=1,
+            center=0,
+            annot=True,
+            fmt=".2f",
+            linewidths=0.5,
+            linecolor="#303030",
+            cbar_kws={'shrink': 0.75, 'aspect': 30},
+            ax=ax
+        )
+        
+        # Highlight strong correlations
+        for text in ax.texts:
+            try:
+                val = float(text.get_text())
+                if abs(val) > 0.7:
+                    text.set_color('yellow')
+                    text.set_weight('bold')
+                else:
+                    text.set_color('white')
+                    text.set_alpha(0.7)
+            except:
+                pass
+
+        ax.set_title(
+            "Correlation Matrix (Direct / Raw Order)\n"
+            f"Method: spearman | Variables: {len(corr.columns)} | Observations: {len(df_clip)}\n"
+            f"Features ordered by index (0-31)",
+            color='white',
+            fontsize=14
+        )
+        
+        plt.xticks(rotation=45, ha='right', fontsize=9)
+        plt.yticks(rotation=0, fontsize=9)
+        
+        plt.tight_layout()
+        direct_heatmap_path = os.path.join(out_dir, "corr_spearman_direct.png")
+        plt.savefig(direct_heatmap_path, dpi=200)
+        plt.close()
+        print(f"Saved direct correlation heatmap to {direct_heatmap_path}")
+
     except Exception as e:
         print(f"Skipping heatmap: {e}")
 
