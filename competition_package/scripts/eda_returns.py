@@ -71,6 +71,11 @@ def main():
     # Reorder the correlation matrix
     corr_clustered = corr.iloc[optimal_order, optimal_order]
     
+    # Save clustered correlation to CSV to match the plot
+    corr_clustered_path = os.path.join(out_dir, "corr_spearman_clustered.csv")
+    corr_clustered.to_csv(corr_clustered_path)
+    print(f"Saved clustered Spearman correlation to {corr_clustered_path}")
+    
     try:
         import matplotlib.pyplot as plt
         import seaborn as sns
