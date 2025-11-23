@@ -162,7 +162,7 @@ Use the repo venv (`../.venv/bin/python` from this directory) for all commands.
 - **LSTM submission (raw window)**
   - Train + save: `../.venv/bin/python train_lstm_experiment.py --window 30 --hidden 256 --layers 2 --lr 5e-4 --epochs 20 --save_path models/lstm_submission.pth --save_norm models/lstm_submission_norm.npz --save_meta models/lstm_submission_meta.json`
   - Streaming code: `solution_lstm.py` loads the saved artifacts; copy to `solution.py` before zipping if you want to submit this variant.
-  - Note: current pilot underperforms v19; use mainly for experimentation or checks.
+  - Note: Full run val R² ~0.3245, LB prerun timed out (60s) due to slow windowed inference. Not recommended for submission unless reworked as a lightweight stateful LSTM.
 
 - **Other archived models**
   - GRU (v12) underperformed (CV ~0.316); XGBoost/ResNet/NLinear artifacts remain in `models/` for reference only.

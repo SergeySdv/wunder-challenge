@@ -866,6 +866,20 @@ This log should be updated whenever a new experiment is run (Tsururu configs, ne
 - Takeaways:
   - Val underperforms v19 MLP (~0.355–0.356). Pseudo-LB likely optimistic; overall not a replacement yet. Keep as reference; try full-data or residual-target variant only if time allows.
 
+### 2.24 LSTM Full Train & Submission Attempt (timed out)
+
+- Files:
+  - `train_lstm_experiment.py` (same raw 32-dim window model), `solution_lstm.py` for streaming submission.
+- Settings:
+  - Window=30, hidden=256, layers=2, lr=5e-4, epochs up to 20 (early stop at epoch 9), full dev (377,580 samples), val=41,354, pseudo-LB=45,849.
+  - Saved artifacts: `models/lstm_submission.pth`, `models/lstm_submission_norm.npz`, `models/lstm_submission_meta.json`.
+- Results:
+  - Final Val R²: **0.3245**
+  - Pseudo-LB R²: **0.4048** (likely optimistic vs LB).
+  - Leaderboard: `submission_lstm.zip` **TIMED OUT** in prerun (60s limit) — streaming inference too slow (recomputes over window each step).
+- Takeaways:
+  - Runtime and weaker val R² make this a poor submission choice. If ever retried, need a true stateful single-step LSTM (carry h/c) and/or much smaller model/window, but expect lower accuracy. Stick with v19/blend for submissions.
+
 ---
 
 ## 3. Current Understanding

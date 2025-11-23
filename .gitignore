@@ -17,3 +17,5 @@ competition_package/plots_*.png
 /competition_package/tsururu_lag_search_results.csv
 /competition_package/mlp_optimization_results.csv
 /competition_package/check_norm_surge.png
+/competition_package/catboost_optimization_results.csv
+/competition_package/mlp_optuna_results.csv

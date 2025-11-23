@@ -63,6 +63,10 @@ To bridge the gap to the top 10 (0.38+), we likely need to capture long-term con
   - Streaming train R² for blend ~0.405 (regresses vs level-only ~0.44).
   - Status: experimental only; keep v19 level-only as the baseline. Blend zip: `submission_mlp_blend_alpha0_6.zip` (pending LB).
 
+- [x] **LSTM Baseline & Submission Attempt:**
+  - Pilot (subset) Val R² ~0.31; full run Val R² ~0.3245, Pseudo-LB ~0.4048.
+  - Submission `submission_lstm.zip` timed out in prerun (60s) due to slow windowed inference. Not viable in current form; would need a lightweight stateful single-step variant, likely with worse accuracy. Keep v19/blend for submissions.
+
 ### 5.7 Future Ideas (Post-v19)
 
 We have likely reached the limit of the current feature engineering + MLP paradigm. Future breakthroughs would require:
