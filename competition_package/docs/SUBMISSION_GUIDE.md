@@ -53,7 +53,7 @@ From `competition_package`:
 
 ```bash
 cd competition_package
-python train_model.py
+python scripts/train_model.py
 ```
 
 This will:
@@ -73,7 +73,7 @@ To confirm that offline feature building matches the streaming implementation in
 
 ```bash
 cd competition_package
-python feature_consistency_check.py
+python scripts/feature_consistency_check.py
 ```
 
 This will sample a few points, compare normalized features from:
@@ -114,7 +114,7 @@ mkdir -p submissions/mlp_v6
 
 # Copy required files from competition_package
 cp competition_package/solution.py submissions/mlp_v6/solution.py
-cp competition_package/utils.py submissions/mlp_v6/
+cp competition_package/src/utils.py submissions/mlp_v6/utils.py
 cp -r competition_package/models submissions/mlp_v6/
 
 # Create the submission ZIP
@@ -133,7 +133,7 @@ Upload this to the competition platform.
 
 ## 3. CatBoost-Based Submission (MultiRMSE, v5 features)
 
-The CatBoost submission variant lives in `competition_package/solution_catboost.py`. It:
+The CatBoost submission variant lives in `submissions/solution_catboost.py`. It:
 
 - Builds the **v5** lag-based feature set on the fly from the rolling `n_lags` buffer:  
   - Flattened raw lags,  
@@ -142,7 +142,7 @@ The CatBoost submission variant lives in `competition_package/solution_catboost.
   - Lag-1 autocorrelation,  
   - Persistence fraction,  
   - `step_in_seq/1000`.  
-- Uses a single `CatBoostRegressor(loss_function="MultiRMSE")` trained offline in `train_catboost_experiment.py`.  
+- Uses a single `CatBoostRegressor(loss_function="MultiRMSE")` trained offline in `scripts/train_catboost_experiment.py`.  
 
 This is intended as an alternative submission entry; it does not replace the MLP solution.
 
@@ -152,7 +152,7 @@ From `competition_package`:
 
 ```bash
 cd competition_package
-python train_catboost_experiment.py
+python scripts/train_catboost_experiment.py
 ```
 
 This will:
@@ -174,7 +174,7 @@ models/catboost_lag_delta_multiRMSE.cbm
 From `competition_package`:
 
 ```bash
-python solution_catboost.py
+python submissions/solution_catboost.py
 ```
 
 This will:
@@ -196,8 +196,8 @@ cd /Users/sergei/PycharmProjects/WunderSex
 mkdir -p submissions/catboost_v5
 
 # Copy required files from competition_package
-cp competition_package/solution_catboost.py submissions/catboost_v5/solution.py
-cp competition_package/utils.py submissions/catboost_v5/
+cp competition_package/submissions/solution_catboost.py submissions/catboost_v5/solution.py
+cp competition_package/src/utils.py submissions/catboost_v5/utils.py
 cp -r competition_package/models submissions/catboost_v5/
 
 # Create the submission ZIP
@@ -217,14 +217,14 @@ Upload this to the competition platform.
 Putting it together, a practical workflow for new experiments is:
 
 1. **Feature iteration (MLP lab):**
-   - Modify feature logic in `train_model.py` and mirror it in `solution.py`.  
-   - Run `python train_model.py` to train a new MLP.  
+   - Modify feature logic in `scripts/train_model.py` and mirror it in `solution.py` (or use shared `src/features`).  
+   - Run `python scripts/train_model.py` to train a new MLP.  
    - Run `python solution.py` to measure streaming R² and runtime.  
-   - Log results in `EXPERIMENT_LOG.md`.  
+   - Log results in `experiments/EXPERIMENT_LOG.md`.  
 
 2. **Occasional CatBoost oracle:**
-   - When a feature set looks promising with the MLP, run `python train_catboost_experiment.py` to train a CatBoost model on the same features.  
-   - Use `solution_catboost.py` to evaluate it in streaming mode.  
+   - When a feature set looks promising with the MLP, run `python scripts/train_catboost_experiment.py` to train a CatBoost model on the same features.  
+   - Use `submissions/solution_catboost.py` to evaluate it in streaming mode.  
 
 3. **Submissions:**
    - Create MLP submissions in `submissions/mlp_v6/` and build ZIPs as `submissions/submission_mlp_v6.zip` for faster, more frequent submissions.
