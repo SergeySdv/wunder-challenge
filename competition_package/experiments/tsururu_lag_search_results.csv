@@ -1,0 +1,5 @@
+lags,norm,score,time
+10,standard_scaler,<tsururu.strategies.recursive.RecursiveStrategy object at 0x1681f4170>,34.22819399833679
+20,standard_scaler,<tsururu.strategies.recursive.RecursiveStrategy object at 0x16826e7b0>,45.03757619857788
+30,standard_scaler,<tsururu.strategies.recursive.RecursiveStrategy object at 0x1689e4560>,57.32936978340149
+50,standard_scaler,<tsururu.strategies.recursive.RecursiveStrategy object at 0x379f9e8a0>,76.37350606918335
