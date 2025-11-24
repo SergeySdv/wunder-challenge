@@ -7,35 +7,55 @@ This note tracks high‑ROI modeling ideas, their status, and implementation det
 - **Current best:** Level + residual blend (α=0.6) on v19 features. LB 0.3571.
 - **Constraints:** Streaming `PredictionModel` (step-by-step), CPU-only at inference, PyTorch/NumPy only.
 
+## Strategic Plan (November 2025)
+
+### 1. Vector Blend Optimization (Guaranteed Small Gains)
+Instead of a global scalar `alpha=0.6` for blending Level and Residual models, optimize `alpha_j` for each of the 32 features.
+*   **Logic:** Some features are "price-like" (unit root -> residual model better), others are "oscillator-like" (mean-reverting -> level model better).
+*   **Implementation:**
+    *   Load predictions from v19 (Level) and v21 (Residual) on Pseudo-LB.
+    *   Solve for `alpha_j` minimizing MSE per feature.
+    *   Save `alpha_blend.npy` (32,) vector.
+*   **Expected Gain:** ~0.358 LB.
+
+### 2. The Structural Fix: Stateful Feature-GRU (High ROI)
+Combine strong engineering (v19 features) with infinite memory (RNN) to capture regime changes, fixing the input quality and timeout issues of previous attempts.
+*   **Input:** 1185-dim engineered features (not raw data).
+*   **Architecture:** `FeatureGRU` (Linear Encoder -> GRU -> Linear Head).
+*   **Training:** Feed full sequences (Batch, Seq_Len, 1185), not random windows.
+*   **Inference:** **Stateful O(1)**. Pass hidden state `h` from step $t$ to $t+1$. Do not re-process the window.
+    *   *Crucial:* Feed zero-features during warmup (steps 0-99) to initialize RNN state.
+*   **Target:** ~0.36-0.37 alone, higher when blended.
+
+### 3. Diagnosing the Validation Gap
+Address the large gap between Pseudo-LB (~0.40) and Real LB (~0.35).
+*   **Hypothesis:** Random split is biased; holdout shares regimes with training.
+*   **Action:** Implement **Stratified Splitting by Volatility**.
+    *   Sort sequences by std dev of Feature 0.
+    *   Pick every 10th sequence for validation.
+    *   Ensures validation covers calm, trending, and chaotic regimes equally.
+
+### 4. Step-Dependent Ensembles (Robustness)
+Combat non-stationarity within sequences.
+*   **Idea:** Train `Model_Early` (steps 100–600) and `Model_Late` (steps 600–999).
+*   **Inference:** Switch model based on `step_in_seq`.
+
+---
+
 ## Tested / Deprioritized
 - **Triplet Imbalance + WVTR (v20)**  
   - Status: Tested. CV/Pseudo-LB ≈ flat; LB 0.3549 (< v19). Deprioritized.
 - **GRU sequence model (v12)**  
   - Status: Tested on raw sequences. CV ~0.316, Pseudo-LB ~0.350 (worse than MLP). Deprioritized.
+- **Micro-Mamba (SSD-style SSM)**  
+  - Status: Tested pilots and v19-feature variant (residual targets).  
+    - Raw pilots: Val R² 0.326 / 0.264, Pseudo-LB 0.350 / 0.287.  
+    - v19 features (window 10, residual, 20k subset): Val R² 0.356, Pseudo-LB 0.383; LB 0.1215.  
+  - Underperforms v19 and GRU; deprioritized unless a new design appears.
 - **NLinear long-context (v16)**  
   - Status: Tested. Large regression (CV ~0.267). Deprioritized.
 - **CatBoost on v19 features**  
   - Status: Trails MLP; heavy to train; not a submission candidate.
-
-## Active Candidate: Micro-Mamba (SSD-style SSM)
-**Goal:** Lightweight SSM (Mamba-2/SSD-inspired) that runs on CPU in streaming mode and can beat the GRU baseline and, if possible, the v19 MLP.
-
-- **Inputs:** Raw 32-dim values, window 30–50. Optional residual target (y − x_t) to stabilize learning; RevIN (instance norm) on inputs/outputs.
-- **Block (2–3 layers):**
-  - SSM core: scalar/diagonal decay per head (SSD-style), state dim `d_state` 16–32.
-  - Width: `d_model` 64 (try 128 if runtime allows); `nheads`=4, `headdim`=16.
-  - Local conv: small causal/depthwise conv (k=4–7) + pointwise mix for short-term patterns.
-  - Gating: sigmoid gate to mix SSM and conv outputs.
-  - Residual + small FFN; RMSNorm or LayerNorm; SiLU activation; dropout ~0.1 if needed.
-- **Training:**
-  - Loss: Huber (delta=1.0) to tame outliers; targets as residuals (optional).
-  - Optim: Adam, lr 1e-3 (back off to 5e-4 if spiky); weight_decay 0.05–0.1; grad clip 1.0.
-  - Split: same pseudo-LB split (10% seqs) + val split inside dev (held-out seqs). Early stop on val R² (patience ~5–8).
-  - Quick pilot: subset 80k–120k samples to see if pseudo-LB > GRU (~0.35). If promising, full train.
-- **Inference:**
-  - Pure PyTorch; no Triton/external kernels. `torch.jit.script` the step to reduce Python overhead.
-  - Maintain SSM state and tiny conv buffer across steps; float32; batch=1; CPU-only.
-  - Optional ensemble: blend residual Mamba output with v19 level MLP (alpha sweep) if it beats baseline.
 
 ## Backlog / Other Ideas
 - **LSTM small baseline:** Not yet tried; could mirror the LSTM script on raw window 30–50 with RevIN + residual target for comparison.
