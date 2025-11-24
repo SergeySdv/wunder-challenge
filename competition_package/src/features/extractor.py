@@ -13,10 +13,17 @@ class FeatureExtractor:
     Can be used in batch (offline) or streaming mode.
     """
 
-    def __init__(self, n_lags: int = 10, clip_min: np.ndarray | None = None, clip_max: np.ndarray | None = None):
+    def __init__(
+        self, 
+        n_lags: int = 10, 
+        clip_min: np.ndarray | None = None, 
+        clip_max: np.ndarray | None = None,
+        use_spreads: bool = False
+    ):
         self.n_lags = n_lags
         self.clip_min = clip_min
         self.clip_max = clip_max
+        self.use_spreads = use_spreads
         self.buffer: list[np.ndarray] = []
         self.current_seq = None
 
@@ -51,30 +58,38 @@ class FeatureExtractor:
         slope, r2, curve = compute_trend_features(lag_slice)
         step_val = np.array([step_in_seq / 1000.0], dtype=np.float32)
 
-        features = np.concatenate(
-            [
-                lag_flat,
-                delta_flat,
-                mean_last,
-                std_last,
-                ac1,
-                ac2,
-                ac3,
-                acf_sum,
-                frac,
-                q25,
-                median,
-                q75,
-                iqr,
-                skew,
-                kurt,
-                cv,
-                slope,
-                r2,
-                curve,
-                step_val,
-            ]
-        ).astype(np.float32)
+        feature_list = [
+            lag_flat,
+            delta_flat,
+            mean_last,
+            std_last,
+            ac1,
+            ac2,
+            ac3,
+            acf_sum,
+            frac,
+            q25,
+            median,
+            q75,
+            iqr,
+            skew,
+            kurt,
+            cv,
+            slope,
+            r2,
+            curve,
+            step_val,
+        ]
+
+        if self.use_spreads:
+            # Highly correlated pairs identified in EDA: (18, 28) and (1, 28)
+            # Compute stationary spreads from the most recent state
+            spread_18_28 = last[18] - last[28]
+            spread_1_28 = last[1] - last[28]
+            spreads = np.array([spread_18_28, spread_1_28], dtype=np.float32)
+            feature_list.append(spreads)
+
+        features = np.concatenate(feature_list).astype(np.float32)
         return features
 
     def stream(self, state: np.ndarray, step_in_seq: int, seq_ix: int | None = None) -> np.ndarray | None:
@@ -95,10 +110,10 @@ class FeatureExtractor:
         return self.build_window_features(window, step_in_seq)
 
 
-def feature_dim(n_lags: int = 10) -> int:
+def feature_dim(n_lags: int = 10, use_spreads: bool = False) -> int:
     """Return the expected feature dimension for v19 layout."""
     base = 32
-    return (
+    dim = (
         n_lags * base  # lags
         + n_lags * base  # deltas
         + base  # mean
@@ -115,3 +130,6 @@ def feature_dim(n_lags: int = 10) -> int:
         + base  # curve
         + 1  # step_val
     )
+    if use_spreads:
+        dim += 2
+    return dim
