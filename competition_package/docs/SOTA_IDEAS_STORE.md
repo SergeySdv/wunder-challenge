@@ -9,14 +9,12 @@ This note tracks high‑ROI modeling ideas, their status, and implementation det
 
 ## Strategic Plan (November 2025)
 
-### 1. Vector Blend Optimization (Guaranteed Small Gains)
-Instead of a global scalar `alpha=0.6` for blending Level and Residual models, optimize `alpha_j` for each of the 32 features.
-*   **Logic:** Some features are "price-like" (unit root -> residual model better), others are "oscillator-like" (mean-reverting -> level model better).
-*   **Implementation:**
-    *   Load predictions from v19 (Level) and v21 (Residual) on Pseudo-LB.
-    *   Solve for `alpha_j` minimizing MSE per feature.
-    *   Save `alpha_blend.npy` (32,) vector.
-*   **Expected Gain:** ~0.358 LB.
+### 1. Vector Blend Optimization (Completed)
+- **Results:**
+  - Pseudo-LB Mean R² improved to **0.4043** (vs scalar 0.4038).
+  - **Public LB:** **0.3566** (Regressed vs Scalar Blend 0.3571).
+- **Diagnosis:** 32-parameter optimization overfit the small Pseudo-LB (10% of data). The global scalar alpha is more robust.
+- **Status:** Deprioritized. Stick to scalar blend for MLP-only submissions.
 
 ### 2. The Structural Fix: Stateful Feature-GRU (High ROI)
 Combine strong engineering (v19 features) with infinite memory (RNN) to capture regime changes, fixing the input quality and timeout issues of previous attempts.
@@ -43,6 +41,8 @@ Combat non-stationarity within sequences.
 ---
 
 ## Tested / Deprioritized
+- **v21 MLP (Spreads + Residuals)**
+  - Status: LB 0.3451. Explicit spreads hurt generalization vs v19.
 - **Triplet Imbalance + WVTR (v20)**  
   - Status: Tested. CV/Pseudo-LB ≈ flat; LB 0.3549 (< v19). Deprioritized.
 - **GRU sequence model (v12)**  
