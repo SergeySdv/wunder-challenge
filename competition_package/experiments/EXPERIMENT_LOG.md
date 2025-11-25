@@ -880,6 +880,35 @@ This log should be updated whenever a new experiment is run (Tsururu configs, ne
 - Takeaways:
   - Runtime and weaker val R² make this a poor submission choice. If ever retried, need a true stateful single-step LSTM (carry h/c) and/or much smaller model/window, but expect lower accuracy. Stick with v19/blend for submissions.
 
+### 2.25 Micro-Mamba (SSD-style SSM) – Pilot Runs (underperformed)
+
+- Files:
+  - `scripts/train_mamba_experiment.py` (CPU-friendly SSD/Mamba-2–style block: small causal conv + scalar-decay SSM + gating + FFN). Targets set to residuals (`state(t+1) - state(t)`), window=30.
+- Pilot A (tiny sanity check):
+  - Config: `d_model=64`, `d_state=32`, `layers=1`, `d_conv=3`, `batch=512`, `epochs=3`, `subset=20k`, residual target.
+  - Results: Val R² **0.3259**, Pseudo-LB **0.3500**. Fast but below v19 MLP and even GRU.
+- Pilot B (mid-size):
+  - Config: `d_model=64`, `d_state=32`, `layers=2`, `d_conv=4`, `batch=256`, `epochs=6`, `subset=120k`, residual target.
+  - Results: Val R² **0.2644**, Pseudo-LB **0.2868**. Early-stopped; clear regression.
+- Takeaways:
+  - Both pilots underperform the baseline MLP and the GRU. Further scaling risks timeouts without evidence of upside. Marked as tested/underperforming; no submission packaged.
+
+### 2.26 Micro-Mamba on v19 Features (submission test, underperformed)
+
+- Files:
+  - `solution_mamba.py` (submission entrypoint) with model artifacts:
+    - `models/mamba_v19_small.pth`
+    - `models/mamba_v19_small_norm.npz`
+    - `models/mamba_v19_small_meta.json`
+  - Training script: `scripts/train_mamba_experiment.py` using v19 feature extractor (window=10, feature_dim=1185), residual targets.
+- Config (20k subset, quick run):
+  - `window=10`, `d_model=96`, `d_state=24`, `layers=2`, `d_conv=4`, dropout 0.1, lr 5e-4, weight_decay 0.05, batch 256, epochs=3, residual target.
+  - Val R² **0.3562**, Pseudo-LB **0.3828** (below v19 MLP/blend).
+- Leaderboard:
+  - `submission_mamba.zip`: **0.1215** (strong regression).
+- Takeaways:
+  - Even with v19 features and residual targets, the small Mamba model fails to generalize; LB score is far below baseline. Treat Mamba as deprioritized for now.
+
 ---
 
 ## 3. Current Understanding
