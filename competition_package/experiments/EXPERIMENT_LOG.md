@@ -830,6 +830,8 @@ This log should be updated whenever a new experiment is run (Tsururu configs, ne
 - Takeaways:
   - Residual + blend offers a small Pseudo-LB lift and delivered a marginal LB gain (0.3571 vs 0.3563). Streaming train R² is still lower than level-only, so keep v19 level-only as the stable fallback; blend (α=0.6) is currently the top LB score.
 
+---
+
 ### 2.22 CatBoost v19 (re-run, 500 iters, diagonal features only)
 
 - Files:
@@ -848,6 +850,8 @@ This log should be updated whenever a new experiment is run (Tsururu configs, ne
 - Takeaways:
   - Still below the MLP v19 (CV ~0.355–0.356, Pseudo-LB ~0.3996) and below the blend LB.
   - Training is slow (~2h per run). Not a submission candidate; keep as reference only.
+
+---
 
 ### 2.23 LSTM Baseline (raw 32-dim, short context)
 
@@ -951,9 +955,22 @@ This log should be updated whenever a new experiment is run (Tsururu configs, ne
 - Concept:
   - Robust scalar blend: `0.55 * v19 (Level) + 0.45 * v21 (Residual)`.
   - Verified with `scripts/adversarial_validation.py` (AUC ~0.47, no train/val shift).
-- Status:
-  - Packaged as `submission_mlp_v24_scalar.zip`.
-  - Designed to minimize variance and prevent overfitting to target definition.
+- Result:
+  - **Leaderboard:** **0.3564**.
+- Takeaways:
+  - Solid, stable result, but slightly below the 0.60/0.40 blend (0.3571).
+
+### 2.31 MLP v25 Regime-Adaptive Blend
+
+- Files:
+  - `scripts/train_regime_classifier.py` (Acc 79%), `submissions/solution_v25_regime.py`.
+- Concept:
+  - Cluster sequences into 5 regimes (Volatile, Trending, Mean-Reverting, etc.).
+  - Switch Alpha dynamically: Alpha=1.0 (Level) for High Vol, Alpha=0.3 (Residual) for Trending.
+- Result:
+  - **Leaderboard:** **0.3565**.
+- Takeaways:
+  - Failed to beat scalar blend. Implies that "Normal" regime dominates test set or regime shifts are too subtle/different in test data.
 
 ---
 
