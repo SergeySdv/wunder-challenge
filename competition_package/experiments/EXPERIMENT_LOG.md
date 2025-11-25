@@ -830,8 +830,6 @@ This log should be updated whenever a new experiment is run (Tsururu configs, ne
 - Takeaways:
   - Residual + blend offers a small Pseudo-LB lift and delivered a marginal LB gain (0.3571 vs 0.3563). Streaming train R² is still lower than level-only, so keep v19 level-only as the stable fallback; blend (α=0.6) is currently the top LB score.
 
----
-
 ### 2.22 CatBoost v19 (re-run, 500 iters, diagonal features only)
 
 - Files:
@@ -850,8 +848,6 @@ This log should be updated whenever a new experiment is run (Tsururu configs, ne
 - Takeaways:
   - Still below the MLP v19 (CV ~0.355–0.356, Pseudo-LB ~0.3996) and below the blend LB.
   - Training is slow (~2h per run). Not a submission candidate; keep as reference only.
-
----
 
 ### 2.23 LSTM Baseline (raw 32-dim, short context)
 
@@ -908,6 +904,56 @@ This log should be updated whenever a new experiment is run (Tsururu configs, ne
   - `submission_mamba.zip`: **0.1215** (strong regression).
 - Takeaways:
   - Even with v19 features and residual targets, the small Mamba model fails to generalize; LB score is far below baseline. Treat Mamba as deprioritized for now.
+
+### 2.27 MLP v21 (Spreads + Residuals)
+
+- Files:
+  - `scripts/train_mlp_v21.py`, `src/features/extractor.py` (updated).
+- Concept:
+  - Add explicit spread features (`18-28`, `1-28`) identified by EDA as highly collinear.
+  - Train on residual targets (`y_t+1 - y_t`).
+- Results:
+  - CV R² (Residual): **0.5234**.
+  - Pseudo-LB R² (Level): **0.3946**.
+  - **Leaderboard:** **0.3451**.
+- Takeaways:
+  - Regression compared to v19 (0.3563). Explicit spreads may have introduced noise or overfitting to training correlations that don't hold in the test set.
+
+### 2.28 MLP v22 Vector Blend (v19 + v21)
+
+- Files:
+  - `scripts/optimize_vector_blend.py`.
+- Concept:
+  - Optimize blend weights `alpha_j` per feature on Pseudo-LB.
+- Results:
+  - Pseudo-LB: **0.4043** (Improved).
+  - **Leaderboard:** **0.3566** (Regressed vs scalar blend 0.3571).
+- Takeaways:
+  - Overfitting to the small Pseudo-LB set. 32 parameters is too many for 10% validation data.
+
+### 2.29 Stateful Feature-GRU (v23)
+
+- Files:
+  - `scripts/train_feature_gru.py`, `submissions/solution_v23_gru.py`.
+- Concept:
+  - Train 2-layer GRU on full sequences of 1187-dim features (v19+spreads).
+  - Use stateful inference (passing hidden state step-to-step) to avoid timeouts.
+- Results:
+  - Val R² (Residual): **0.5066**.
+  - **Leaderboard:** **0.3368**.
+- Takeaways:
+  - Works technically (no timeout), but underperforms MLP. Infinite memory likely captures regime noise specific to training data.
+
+### 2.30 MLP v24 Scalar Blend (Current Safe Bet)
+
+- Files:
+  - `submissions/solution_v24_scalar.py`.
+- Concept:
+  - Robust scalar blend: `0.55 * v19 (Level) + 0.45 * v21 (Residual)`.
+  - Verified with `scripts/adversarial_validation.py` (AUC ~0.47, no train/val shift).
+- Status:
+  - Packaged as `submission_mlp_v24_scalar.zip`.
+  - Designed to minimize variance and prevent overfitting to target definition.
 
 ---
 
