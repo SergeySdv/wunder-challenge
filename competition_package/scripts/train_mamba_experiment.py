@@ -6,6 +6,7 @@ CPU-friendly, pure PyTorch, no external kernels.
 import argparse
 import os
 import random
+import sys
 from typing import Tuple
 
 import numpy as np
@@ -15,11 +16,16 @@ import torch.nn as nn
 from sklearn.metrics import r2_score
 from torch.utils.data import DataLoader, Dataset
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.abspath(os.path.join(SCRIPT_DIR, "..")))
+from src.features.extractor import FeatureExtractor, feature_dim
+
 
 # -----------------------------
 # Config / Defaults
 # -----------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.abspath(os.path.join(BASE_DIR, "..")))
 DEFAULT_WINDOW = 30
 PSEUDO_LB_SEED = 999
 VAL_SEED = 123
@@ -59,10 +65,12 @@ def build_supervised_dataset(
     clip_min: np.ndarray,
     clip_max: np.ndarray,
     window: int,
+    extractor: FeatureExtractor,
+    feature_mode: str = "v19",
     residual_target: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Return X of shape (N, window, 32) and y of shape (N, 32).
+    Return X of shape (N, feature_dim) and y of shape (N, 32).
     If residual_target=True, targets are y_{t+1} - x_t (delta); else absolute next value.
     """
     feature_cols = [str(i) for i in range(32)]
@@ -79,16 +87,29 @@ def build_supervised_dataset(
                 continue
             window_slice = states[idx - window + 1 : idx + 1]
             window_slice = np.clip(window_slice, clip_min, clip_max).astype(np.float32)
+            step_in_seq = int(df_seq["step_in_seq"].iloc[idx])
+            if feature_mode == "minimal":
+                last = window_slice[-1]
+                lag_flat = window_slice.reshape(-1)
+                delta_flat = (window_slice - last).reshape(-1)
+                step_val = np.array([step_in_seq / 1000.0], dtype=np.float32)
+                features = np.concatenate([lag_flat, delta_flat, step_val]).astype(np.float32)
+            else:
+                features = extractor.build_window_features(window_slice, step_in_seq)
             target_raw = states[idx + 1].astype(np.float32)
             if residual_target:
                 target = target_raw - window_slice[-1]
             else:
                 target = target_raw
-            X_list.append(window_slice)
+            X_list.append(features)
             y_list.append(target)
 
     if not X_list:
-        return np.empty((0, window, 32), dtype=np.float32), np.empty((0, 32), dtype=np.float32)
+        if feature_mode == "minimal":
+            dim = window * 32 * 2 + 1
+        else:
+            dim = feature_dim(window)
+        return np.empty((0, dim), dtype=np.float32), np.empty((0, 32), dtype=np.float32)
 
     return np.stack(X_list), np.stack(y_list)
 
@@ -205,7 +226,7 @@ class MambaBlock(nn.Module):
 
         u = self.u_proj(x).view(B, T, self.nheads, self.d_state)  # (B, T, H, S)
         c = self.c_proj(x).view(B, T, self.nheads, self.d_state)  # (B, T, H, S)
-        dt = torch.softplus(self.dt_proj(x) + self.dt_bias)  # (B, T, H)
+        dt = torch.nn.functional.softplus(self.dt_proj(x) + self.dt_bias)  # (B, T, H)
 
         # Init state
         state = x.new_zeros(B, self.nheads, self.d_state)
@@ -252,7 +273,7 @@ class MicroMambaModel(nn.Module):
             ]
         )
         self.norm = RMSNorm(d_model)
-        self.head = nn.Linear(d_model, input_dim)  # predict 32-dim
+        self.head = nn.Linear(d_model, 32)  # predict 32-dim
 
     def forward(self, x):
         """
@@ -329,6 +350,16 @@ def main():
     parser.add_argument("--subset", type=int, default=None, help="Optional cap on training samples for quick tests.")
     parser.add_argument("--residual_target", action="store_true", help="Use residual target (y - last).")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu", help="Device.")
+    parser.add_argument("--save_model_path", type=str, default=None, help="Path to save model state_dict.")
+    parser.add_argument("--save_norm_path", type=str, default=None, help="Path to save normalization (npz).")
+    parser.add_argument("--save_meta_path", type=str, default=None, help="Path to save meta (json).")
+    parser.add_argument(
+        "--feature_mode",
+        type=str,
+        default="v19",
+        choices=["v19", "minimal"],
+        help="Feature set: v19 (full engineered) or minimal (lags+deltas+step).",
+    )
     args = parser.parse_args()
 
     set_seed(2024)
@@ -337,7 +368,8 @@ def main():
         f"--- Micro-Mamba (window={args.window}, d_model={args.d_model}, d_state={args.d_state}, "
         f"layers={args.layers}, residual_target={args.residual_target}) ---"
     )
-    dataset_path = os.path.join(BASE_DIR, "datasets", "train.parquet")
+    root_dir = os.path.abspath(os.path.join(BASE_DIR, ".."))
+    dataset_path = os.path.join(root_dir, "datasets", "train.parquet")
     df = load_dataset(dataset_path)
     all_seqs = df["seq_ix"].unique()
 
@@ -361,10 +393,17 @@ def main():
 
     print("Computing winsorization bounds on train split...")
     clip_min, clip_max = compute_winsorization_bounds(df_train)
+    extractor = FeatureExtractor(n_lags=args.window, clip_min=clip_min, clip_max=clip_max)
 
     print("Building train dataset...")
     X_train, y_train = build_supervised_dataset(
-        df_train, clip_min, clip_max, args.window, residual_target=args.residual_target
+        df_train,
+        clip_min,
+        clip_max,
+        args.window,
+        extractor=extractor,
+        feature_mode=args.feature_mode,
+        residual_target=args.residual_target,
     )
     if args.subset is not None and args.subset < len(X_train):
         idx = np.random.choice(len(X_train), args.subset, replace=False)
@@ -374,13 +413,25 @@ def main():
 
     print("Building val dataset...")
     X_val, y_val = build_supervised_dataset(
-        df_val, clip_min, clip_max, args.window, residual_target=args.residual_target
+        df_val,
+        clip_min,
+        clip_max,
+        args.window,
+        extractor=extractor,
+        feature_mode=args.feature_mode,
+        residual_target=args.residual_target,
     )
     print(f"  Val samples: {len(X_val)}")
 
     print("Building pseudo-LB dataset...")
     X_pseudo, y_pseudo = build_supervised_dataset(
-        df_pseudo, clip_min, clip_max, args.window, residual_target=args.residual_target
+        df_pseudo,
+        clip_min,
+        clip_max,
+        args.window,
+        extractor=extractor,
+        feature_mode=args.feature_mode,
+        residual_target=args.residual_target,
     )
     print(f"  Pseudo-LB samples: {len(X_pseudo)}")
 
@@ -393,6 +444,11 @@ def main():
     X_val = normalize_windows(X_val, mean, std) if len(X_val) else X_val
     X_pseudo = normalize_windows(X_pseudo, mean, std) if len(X_pseudo) else X_pseudo
 
+    # Add a time dimension of 1 for the Mamba blocks
+    X_train = X_train[:, None, :]
+    X_val = X_val[:, None, :] if len(X_val) else X_val
+    X_pseudo = X_pseudo[:, None, :] if len(X_pseudo) else X_pseudo
+
     train_ds = WindowDataset(X_train, y_train)
     val_ds = WindowDataset(X_val, y_val) if len(X_val) else None
     pseudo_ds = WindowDataset(X_pseudo, y_pseudo) if len(X_pseudo) else None
@@ -403,7 +459,7 @@ def main():
 
     device = torch.device(args.device)
     model = MicroMambaModel(
-        input_dim=32,
+        input_dim=X_train.shape[-1],
         d_model=args.d_model,
         d_state=args.d_state,
         nheads=args.nheads,
@@ -453,6 +509,40 @@ def main():
     if pseudo_loader:
         pseudo_loss, pseudo_r2 = evaluate(model, pseudo_loader, criterion, device)
         print(f"Pseudo-LB R2: {pseudo_r2:.5f}")
+
+    # Save artifacts
+    if args.save_model_path:
+        torch.save(model.state_dict(), args.save_model_path)
+        print(f"Saved model to {args.save_model_path}")
+    if args.save_norm_path:
+        np.savez(
+            args.save_norm_path,
+            mean=mean,
+            std=std,
+            clip_min=clip_min,
+            clip_max=clip_max,
+        )
+        print(f"Saved normalization to {args.save_norm_path}")
+    if args.save_meta_path:
+        import json
+
+        meta = dict(
+            window=args.window,
+            input_dim=X_train.shape[-1],
+            d_model=args.d_model,
+            d_state=args.d_state,
+            nheads=args.nheads,
+            layers=args.layers,
+            d_conv=args.d_conv,
+            dropout=args.dropout,
+            residual_target=args.residual_target,
+            weight_decay=args.weight_decay,
+            lr=args.lr,
+            feature_mode=args.feature_mode,
+        )
+        with open(args.save_meta_path, "w") as f:
+            json.dump(meta, f, indent=2)
+        print(f"Saved meta to {args.save_meta_path}")
     else:
         print("Pseudo-LB set empty; skipping.")
 

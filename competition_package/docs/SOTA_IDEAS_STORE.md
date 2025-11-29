@@ -30,9 +30,22 @@ All complex models (Regime Blend, Vector Blend, RNN) plateau around 0.356, sligh
 - **Result:** LB **0.3368**.
 - **Verdict:** RNNs overfit training regimes.
 
+### 5. TSMixer (The New Frontier)
+We successfully implemented and tuned a TSMixer (MLP-Mixer for Time Series).
+- **Status:** v2 (Raw+Delta) achieves Pseudo-LB **0.3837** (strong) but LB **0.3374** (weak).
+- **Diagnosis:** Likely suffering from **distribution shift** (trained on specific price levels) and lack of explicit domain features.
+- **Next Steps (v28+):**
+    1.  **RevIN (Reversible Instance Normalization):** Normalize each input window to mean 0/std 1. Makes the model invariant to absolute price levels. **Crucial** for this dataset.
+    2.  **Hybrid TSMixer:** Feed engineered features (Rolling Mean, Volatility) as extra channels. Combines MLP's feature power with TSMixer's grid structure.
+    3.  **Patching:** Aggregate time steps into patches (e.g., size 2) to learn local smoothness and reduce noise.
+
 ---
 
 ## Tested / Deprioritized
+- **v27 Triplet Blend (MLP Level + MLP Resid + TSMixer)**
+  - Status: Submitted (Pending Score). Ensembles diverse architectures.
+- **v26 TSMixer v2 (Raw + Delta)**
+  - Status: LB 0.3374. Good baseline, needs RevIN to generalize.
 - **v25 Regime-Adaptive Blend**
   - Status: LB 0.3565. Complexity did not pay off.
 - **v24 Scalar Blend (0.55/0.45)**

@@ -16,11 +16,19 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import r2_score
 
-# ensure local utils is used
+# ensure local utils is used (shim)
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
-from utils import DataPoint  # noqa: E402
+import importlib.util
+utils_path = os.path.join(ROOT_DIR, "utils.py")
+if not os.path.exists(utils_path):
+    utils_path = os.path.join(ROOT_DIR, "src", "utils.py")
+spec = importlib.util.spec_from_file_location("local_utils", utils_path)
+utils_mod = importlib.util.module_from_spec(spec)
+assert spec and spec.loader
+spec.loader.exec_module(utils_mod)  # type: ignore
+DataPoint = utils_mod.DataPoint  # type: ignore
 
 
 def main():
