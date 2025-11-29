@@ -83,4 +83,23 @@ Features tried in experiments but removed due to poor performance or leakage.
 
 ---
 
+## 6. Hybrid TSMixer Features (v26+)
+
+Introduced in **v26 (TSMixer v4 Hybrid)** to bridge the gap between MLP feature engineering and TSMixer's temporal learning. Instead of flattening everything, we stack engineered features as **extra channels** in the `(Time, Channels)` grid.
+
+**Total Channels:** 192 (Input to TSMixer)
+
+| Feature Block | Dimension | Description / Formula | Motivation |
+| :--- | :--- | :--- | :--- |
+| **Raw Lags** | `10 × 32` | Original state history. | Base signal. |
+| **Deltas** | `10 × 32` | `x[t] - x[t-1]` | Velocity/Momentum. Makes model robust to level shifts. |
+| **Rolling Mean** | `10 × 32` | `mean(window)` (Broadcasted) | Explicit local level reference. Helps TSMixer normalize internally. |
+| **Rolling Std** | `10 × 32` | `std(window)` (Broadcasted) | Volatility signal. |
+| **Trend Slope** | `10 × 32` | Linear regression slope (Broadcasted) | Directional trend strength. |
+| **Skewness** | `10 × 32` | `((x-μ)/σ)³` (Broadcasted) | Asymmetry/Crash risk signal. |
+
+*Note: Scalar features (Mean, Std, Slope, Skew) are computed once per window and **tiled** (repeated) across the 10 time steps to preserve the 2D grid structure required by TSMixer.*
+
+---
+
 *Use this registry to check for redundancy before proposing new features.*

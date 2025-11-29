@@ -644,4 +644,28 @@ We consulted a Deep Research report suggesting that simple linear models (**NLin
 
 **Conclusion:**
 Benchmarks on "Exchange Rate" datasets don't always transfer to specific hackathon data. **Empirical testing > Theory.** Our **Lag-MLP (v19)** remains the champion because it treats the problem as "Tabular Regression with Short Memory," which fits the actual data physics best.
- 
+
+---
+
+## 7. The TSMixer Architecture (v26+)
+
+After hitting a wall with the MLP (v19), we adopted **TSMixer** (Time-Series Mixer), a Google Research architecture (2023) designed to beat Transformers with simple MLPs.
+
+### 7.1 The Concept: "Grid" vs. "Bag"
+*   **MLP Approach:** Takes the history `(10 steps, 32 features)`, flattens it into a bag of 320 numbers, and learns patterns. It loses the concept of "Time" and "Column".
+*   **TSMixer Approach:** Keeps the data as a **2D Grid** `(Time, Features)`.
+    1.  **Time-Mixing Layer:** Looks at *one feature* across time. Learns temporal rules (e.g., "if it went down 3 times, buy"). Shares weights across all 32 features (forcing universal rules).
+    2.  **Feature-Mixing Layer:** Looks at *one time step* across all features. Learns correlations (e.g., "if Asset A is up, Asset B is down").
+
+### 7.2 Why it failed initially (v26 Raw)
+We fed it raw prices. It scored well locally (0.38) but failed on the leaderboard (0.33).
+*   **Reason:** **Distribution Shift**. The test set has price levels unseen in training. The MLP handles this by using "Rolling Mean Centered" features. TSMixer saw raw values and got confused.
+
+### 7.3 The Innovation: "Hybrid TSMixer" (v28)
+We combined the best of both worlds:
+*   We took the **Engineered Features** from the MLP (Rolling Mean, Std, Slope, Skew).
+*   We injected them as **Extra Channels** into TSMixer.
+*   Input became: `(10 steps, 192 channels)`.
+*   **Result:** The Mixer learned to combine "Raw Dynamics" with "Explicit Physics". Pseudo-LB jumped to **0.396**, matching our best MLP!
+
+This proves that **Structure (TSMixer) + Domain Knowledge (Features)** is the winning formula.
