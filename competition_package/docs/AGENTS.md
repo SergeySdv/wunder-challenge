@@ -14,7 +14,7 @@ The idea: before doing anything non‑trivial, the agent should skim these files
   - Evaluation metric (R²) and streaming `PredictionModel` API.  
   - Submission format and structure.
 
-- `PLAN.md`  
+- `docs/PLAN.md`  
   - Overall plan for the solution.  
   - Current status (what’s done, what’s next).  
   - Strategy: use Tsururu offline for exploration, then re‑implement in plain Python for submission.  
@@ -30,7 +30,7 @@ The idea: before doing anything non‑trivial, the agent should skim these files
   - Includes statistics, sample data, correlations, and distribution analysis.
   - **Use this to share dataset details with remote agents or collaborators.**
 
-- `EXPERIMENT_LOG.md`  
+- `experiments/EXPERIMENT_LOG.md`  
   - Chronological log of experiments and results.  
   - Baselines (moving average), Tsururu CatBoost runs, custom lag‑MLP v1 and v2.  
   - Settings and outcomes (validation R², leaderboard scores, runtime).  
@@ -53,6 +53,18 @@ The idea: before doing anything non‑trivial, the agent should skim these files
   - Maps feature names to formulas, motivations, and code implementations.
   - Tracks deprecated/failed features to avoid retrying bad ideas.
 
+- `docs/FEATURE_GENERATION.md`
+  - How to run catch22 offline labs and wire the outputs into supervised feature builders.
+  - Guidance on designing streaming-safe analog features from heavy offline descriptors.
+
+- `docs/SUBMISSION_GUIDE.md`
+  - Step-by-step packaging instructions for MLP and CatBoost submissions.
+  - Lists required files/artifacts to include in a ZIP and how to validate before upload.
+
+- `docs/SOTA_IDEAS_STORE.md`
+  - Parking lot of high-ROI modeling ideas, status, and next steps.
+  - Use this to avoid repeating recent experiments and to pick the next candidate.
+
 - `examples/simple/README.md`  
   - Description of the simple moving‑average example solution.  
   - Shows the minimal correct `PredictionModel` implementation.  
@@ -62,7 +74,7 @@ The idea: before doing anything non‑trivial, the agent should skim these files
 
 ## 2. Core Python Code (read next as needed)
 
-- `utils.py`  
+- `src/utils.py` (re-exported via `utils.py` shim at repo root)  
   - Defines `DataPoint` and `ScorerStepByStep`.  
   - `ScorerStepByStep` implements the streaming evaluation logic used both locally and by the competition.  
   - Any changes to `PredictionModel` must respect this interface.
@@ -75,30 +87,30 @@ The idea: before doing anything non‑trivial, the agent should skim these files
     - Applies normalization and feeds a small MLP.  
   - Contains a `__main__` block to evaluate on `train.parquet` using `ScorerStepByStep`.
 
-- `train_model.py`  
+- `scripts/train_model.py`  
   - Offline trainer and feature builder for the MLP.  
   - **v10 Update**: Implements **5-Fold Cross-Validation** and **Pseudo-LB** splitting.
   - Builds supervised `(X, y)` with **Winsorization** (input clipping to [0.1%, 99.9%] quantiles).
   - Trains 5 independent models (one per fold) and saves them as `models/lag_mlp_fold*.pth`.
   - Computes global normalization/clipping stats on the Dev set only.
 
-- `leakage_check.py`  
+- `scripts/leakage_check.py`  
   - Verifies that `build_supervised_dataset` does not leak future information:  
     - Checks train/val sequence disjointness,  
     - Reconstructs lag windows and targets from raw data for random samples.
 
-- `tsururu_experiment.py`  
+- `scripts/tsururu_experiment.py`  
   - Offline Tsururu experiments (univariate CatBoost on feature `0`, plus some exploratory multivariate attempts).  
   - Not used in submission; used only for learning and guiding feature design.
 
-- `train_catboost_experiment.py`  
-  - Offline CatBoost baseline / feature lab using the same lag+delta features as `train_model.py`.  
+- `scripts/train_catboost_experiment.py`  
+  - Offline CatBoost baseline / feature lab using the same lag+delta features as `scripts/train_model.py`.  
   - Trains a single multi-output `CatBoostRegressor(loss_function="MultiRMSE")` and reports validation R².  
   - Used to benchmark feature sets (lags vs lags+delta vs future additions) without depending on Tsururu.
 
-- `compute_catch22_features.py`  
+- `scripts/compute_catch22_features.py`  
   - Offline automated feature generation script (planned lab tool).  
-  - Computes per-sequence, per-dimension catch22 features (22 canonical time-series stats) and saves them (e.g. to `datasets/catch22_per_seq.npz`) for later use in `train_model.py` / `solution.py`.  
+  - Computes per-sequence, per-dimension catch22 features (22 canonical time-series stats) and saves them (e.g. to `datasets/catch22_per_seq.npz`) for later use in `scripts/train_model.py` / `solution.py`.  
   - Not used in the submission directly; its outputs are small numeric feature tables that can be safely loaded at runtime.
 
 - `examples/simple/solution.py`  
@@ -112,7 +124,7 @@ The idea: before doing anything non‑trivial, the agent should skim these files
 When working on this repo, an agent should:
 
 1. **Start with docs**:
-   - Read `README.md`, `PLAN.md`, `DATA_DESCRIPTION.md`, `EXPERIMENT_LOG.md`, `docs/TEACHING_NOTES.md`, and `examples/simple/README.md` to understand:
+   - Read `README.md`, `docs/PLAN.md`, `datasets/DATA_DESCRIPTION.md`, `experiments/EXPERIMENT_LOG.md`, `docs/TEACHING_NOTES.md`, and `examples/simple/README.md` to understand:
      - The data and task,  
      - The current solution path,  
      - What has already been tried and how it performed.
@@ -124,18 +136,18 @@ When working on this repo, an agent should:
 
 3. **Two model roles: lab vs submission**:
    - The primary **submission model** is a small lag-based MLP:
-     - Trained via `train_model.py` on lag+delta+rolling features (and, in future, optionally augmented with precomputed automated features like catch22).  
+     - Trained via `scripts/train_model.py` on lag+delta+rolling features (and, in future, optionally augmented with precomputed automated features like catch22).  
      - Implemented in `solution.py` as a streaming `PredictionModel`, using only allowed libraries (NumPy, pandas, PyTorch).  
    - CatBoost models are used **offline only**:
-     - `train_catboost_experiment.py` trains a `CatBoostRegressor(loss_function="MultiRMSE")` on the exact same supervised `(X, y)` features that the MLP uses.  
+     - `scripts/train_catboost_experiment.py` trains a `CatBoostRegressor(loss_function="MultiRMSE")` on the exact same supervised `(X, y)` features that the MLP uses.  
      - CatBoost is treated as a strong baseline / oracle for feature sets, not as the runtime submission model (unless explicitly decided later and allowed by the environment).
 
 3. **Preserve leak‑free supervision**:
-   - Any changes to how `(X, y)` are built in `train_model.py` must continue to:
+   - Any changes to how `(X, y)` are built in `scripts/train_model.py` must continue to:
      - Use only past information to predict the next step,  
      - Split by `seq_ix` for train/val,  
      - Compute normalization on train only.  
-   - If changing the feature spec, update both `train_model.py` and `solution.py` consistently.
+   - If changing the feature spec, update both `scripts/train_model.py` and `solution.py` consistently.
 
 4. **Keep runtime constraints in mind**:
    - Scoring over full `train.parquet` currently takes ~15 seconds locally.  
@@ -148,7 +160,7 @@ When working on this repo, an agent should:
 6. **Use automated feature generation as an offline lab**:
    - Tools like **catch22** (via `compute_catch22_features.py`) should be used offline to generate small, precomputed feature tables (e.g. per-sequence descriptors).  
    - These precomputed features can then be:
-     - Loaded in `train_model.py` and appended to the supervised feature vector `X` for both MLP and CatBoost experiments,  
+     - Loaded in `scripts/train_model.py` and appended to the supervised feature vector `X` for both MLP and CatBoost experiments,  
      - Loaded in `solution.py` and concatenated with lag-based features at inference time (no heavy library imports in submission code).  
    - The MLP serves as the **fast feature lab** (quick retrains to test if new features help), while CatBoost is a **slow, strong oracle** that is run only occasionally on the best feature sets.
 
@@ -159,14 +171,14 @@ When working on this repo, an agent should:
 When asked to improve or modify the solution:
 
 1. Skim the docs listed above to recall current models and scores.  
-2. Check `EXPERIMENT_LOG.md` to avoid duplicating old experiments.  
+2. Check `experiments/EXPERIMENT_LOG.md` to avoid duplicating old experiments.  
 3. If changing features or the model:
-   - Update `train_model.py` (offline training) and retrain.  
+   - Update `scripts/train_model.py` (offline training) and retrain.  
    - Mirror the same feature logic inside `PredictionModel` in `solution.py`.  
    - Run `python solution.py` to ensure streaming behavior and runtime are acceptable.  
 4. If adding a new experiment:
-   - Append a short, clear entry to `EXPERIMENT_LOG.md` with settings and results.  
-   - Update `PLAN.md` or `docs/TEACHING_NOTES.md` if the change is conceptual or structural.  
+   - Append a short, clear entry to `experiments/EXPERIMENT_LOG.md` with settings and results.  
+   - Update `docs/PLAN.md` or `docs/TEACHING_NOTES.md` if the change is conceptual or structural.  
 
 ---
 
@@ -175,7 +187,7 @@ When asked to improve or modify the solution:
 - Prefer using the project virtual environment at:
   - `/Users/sergei/PycharmProjects/WunderSex/.venv`
 - When running training or scoring scripts inside `competition_package`, use:
-  - `../.venv/bin/python train_model.py`
+  - `../.venv/bin/python scripts/train_model.py`
   - `../.venv/bin/python solution.py`
 - Keep changes compatible with a CPU-only PyTorch setup.
 
@@ -183,7 +195,7 @@ When asked to improve or modify the solution:
 
 ## 6. Validation Strategy Notes
 
-- Default training split in `train_model.py` is **80/20 by `seq_ix`**, which is good but still optimistic relative to the hidden leaderboard.  
+- Default training split in `scripts/train_model.py` is **80/20 by `seq_ix`**, which is good but still optimistic relative to the hidden leaderboard.  
 - For more reliable estimates before submitting:
   - Use **K-fold CV by `seq_ix`** (e.g. 5 folds): shuffle sequence IDs once, then rotate which fold is used as validation; report mean/std of validation R².  
   - For streaming behavior, run `solution.py` on a **held-out subset of sequences** (e.g. 10–20% of `seq_ix`) and treat that as a local “pseudo-leaderboard” instead of just using R² on the full train file.  

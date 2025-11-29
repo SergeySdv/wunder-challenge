@@ -31,21 +31,27 @@ All complex models (Regime Blend, Vector Blend, RNN) plateau around 0.356, sligh
 - **Verdict:** RNNs overfit training regimes.
 
 ### 5. TSMixer (The New Frontier)
-We successfully implemented and tuned a TSMixer (MLP-Mixer for Time Series).
-- **Status:** v2 (Raw+Delta) achieves Pseudo-LB **0.3837** (strong) but LB **0.3374** (weak).
-- **Diagnosis:** Likely suffering from **distribution shift** (trained on specific price levels) and lack of explicit domain features.
-- **Next Steps (v28+):**
-    1.  **RevIN (Reversible Instance Normalization):** Normalize each input window to mean 0/std 1. Makes the model invariant to absolute price levels. **Crucial** for this dataset.
-    2.  **Hybrid TSMixer:** Feed engineered features (Rolling Mean, Volatility) as extra channels. Combines MLP's feature power with TSMixer's grid structure.
-    3.  **Patching:** Aggregate time steps into patches (e.g., size 2) to learn local smoothness and reduce noise.
+We have a strong pseudo-LB (0.3837) but weak LB (0.3374) on v2 (Raw+Delta).
+- **Status:** v4 Hybrid (Raw+Delta+Stats) achieves Pseudo-LB **0.3957** (Matches MLP!).
+- **Diagnosis:** Likely suffering from **distribution shift** (trained on specific price levels).
+- **Action Plan (Tier 1 - Do Next):**
+    1.  **Input Stem (1x1 Conv):** Compress 192 hybrid features -> 64/96 dims before mixing. Reduces params, forces feature extraction.
+    2.  **Robust RevIN-Lite:** Implement Smoothed RevIN (mix window stats with global stats) to handle distribution shift without destabilizing on short windows.
+    3.  **Training Recipe:** Add EMA (Exponential Moving Average) and AdamW to stabilize generalization.
+
+**Tier 2 (If Tier 1 fails):**
+- **Ensemble Distillation:** Train a small TSMixer to mimic the large Triplet Ensemble.
+- **Frequency Mixing:** Replace Time-MLP with FFT (FNet style) for noise filtering.
 
 ---
 
 ## Tested / Deprioritized
-- **v27 Triplet Blend (MLP Level + MLP Resid + TSMixer)**
-  - Status: Submitted (Pending Score). Ensembles diverse architectures.
+- **v28 Hybrid Ensemble (MLP + MLP + TSMixer v4)**
+  - Status: Ready for Submission (Next Day). Pseudo-LB ~0.40+.
+- **v27 Triplet Blend (MLP Level + MLP Resid + TSMixer v2)**
+  - Status: Submitted (Pending Score).
 - **v26 TSMixer v2 (Raw + Delta)**
-  - Status: LB 0.3374. Good baseline, needs RevIN to generalize.
+  - Status: LB 0.3374. Good baseline, needs RevIN.
 - **v25 Regime-Adaptive Blend**
   - Status: LB 0.3565. Complexity did not pay off.
 - **v24 Scalar Blend (0.55/0.45)**
