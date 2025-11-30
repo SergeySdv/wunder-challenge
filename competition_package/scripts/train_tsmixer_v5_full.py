@@ -168,18 +168,33 @@ def train_one_fold(X_train, y_train, X_val, y_val, fold_idx, global_mean, global
     return best_state, best_val_r2
 
 def main():
-    print(f"--- TSMixer v5 Refined (Full Training) ---")
+    print(f"--- TSMixer v5 Refined (Full Training on Hard Split) ---")
     
     dataset_path = os.path.join(CURRENT_DIR, "..", "datasets", "train.parquet")
     df = load_dataset(dataset_path)
     
-    all_seqs = df["seq_ix"].unique()
-    rng = np.random.default_rng(PSEUDO_LB_SEED)
-    rng.shuffle(all_seqs)
-    
-    n_pseudo = int(len(all_seqs) * 0.10)
-    pseudo_ids = all_seqs[:n_pseudo]
-    dev_ids = all_seqs[n_pseudo:]
+    # Load Hard Split (Strategic Pivot)
+    hard_split_path = os.path.join(CURRENT_DIR, "..", "datasets", "hard_validation_split.json")
+    if os.path.exists(hard_split_path):
+        print(f"Loading Hard Split from {hard_split_path}...")
+        with open(hard_split_path, "r") as f:
+            hard_seqs = json.load(f)
+        
+        # Pseudo-LB = Hard Split
+        pseudo_ids = np.array(hard_seqs)
+        all_seqs = df["seq_ix"].unique()
+        dev_ids = np.array([s for s in all_seqs if s not in pseudo_ids])
+        
+        print(f"Train Seqs: {len(dev_ids)}, Hard-Val Seqs: {len(pseudo_ids)}")
+    else:
+        print("Hard split not found! Falling back to random split.")
+        all_seqs = df["seq_ix"].unique()
+        rng = np.random.default_rng(PSEUDO_LB_SEED)
+        rng.shuffle(all_seqs)
+        
+        n_pseudo = int(len(all_seqs) * 0.10)
+        pseudo_ids = all_seqs[:n_pseudo]
+        dev_ids = all_seqs[n_pseudo:]
     
     df_dev = df[df["seq_ix"].isin(dev_ids)].copy()
     df_pseudo = df[df["seq_ix"].isin(pseudo_ids)].copy()
