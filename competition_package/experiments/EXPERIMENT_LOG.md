@@ -972,6 +972,21 @@ This log should be updated whenever a new experiment is run (Tsururu configs, ne
 - Takeaways:
   - Failed to beat scalar blend. Implies that "Normal" regime dominates test set or regime shifts are too subtle/different in test data.
 
+### 2.32 TSMixer v5 Refined (RevIN-Lite + Stem)
+
+- Files:
+  - `scripts/train_tsmixer_v5_full.py`, `src/models/tsmixer_refined.py`.
+- Concept:
+  - **Architecture:** TSMixer with **Input Stem** (Linear 192->96) and **RevIN-Lite** (Robust Normalization blending window/global stats).
+  - **Training:** 5-Fold CV on Full Data using **Hard Split Validation** (optimizing specifically for sequences where MLP failed).
+  - **Optimizer:** AdamW + Cosine Annealing.
+- Results:
+  - **CV Mean R² (Hard Split):** **0.36995**.
+  - **Benchmark:** Beats MLP v19 (0.357) on the same Hard Split.
+  - **Full Train Streaming R²:** **0.4249**.
+- Status:
+  - **Zipped as `submission_tsmixer_v5_refined.zip`.** Strongest single-model candidate.
+
 ---
 
 ## 3. Current Understanding
