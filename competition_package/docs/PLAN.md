@@ -272,6 +272,17 @@ We do **not** plan to import or depend on external libraries like `autofin` insi
   - Consider simple rolling/expanding splits over `seq_ix` indices (earlier seqs as train, later as validation) as an additional robustness check.  
   - Use these CV schemes to decide whether new feature ideas (like spreads, clipping, etc.) actually generalize, not just improve train‑file R².  
 
-- **Return/volatility perspective (already partially explored):**
-  - The “predict returns instead of prices” idea corresponds to our v8 residual‑target ensemble; given its worse leaderboard score, we treat this as a cautionary example rather than the main direction.  
-  - Any further ideas in this vein (e.g., volatility‑scaled targets) should be tested very carefully on strong held‑out seq splits before being considered for submission.  
+### 6.2 Immediate Actions (Tier 1 Optimization)
+Goal: Fix TSMixer's distribution shift issue to unlock its full 0.39+ potential on the Real LB.
+- [x] **TSMixer v5 (Refined):**
+  - **Architecture:** Input Stem (192->96) + RevIN-Lite + AdamW + Cosine Annealing.
+  - **Training:** Trained on Full Data vs Hard Split.
+  - **Results:** CV Mean R² **0.370** (beats MLP 0.357 baseline). Full Train R² **0.425**.
+  - **Status:** Zipped as `submission_tsmixer_v5_refined.zip`. Ready to submit.
+- [ ] **Feature Pruning:** (Optional) Run CatBoost importance on v4 Hybrid features to cut noise.
+
+### 6.3 Final Selection Plan (Sunday/Monday)
+1.  Submit **v28 Hybrid Ensemble** (MLP+MLP+TSMixer v4).
+2.  Submit **v29 TSMixer v5 Refined** (Solo check).
+3.  **v30 Final Grand Ensemble:** Blend MLP v19 + MLP v21 + TSMixer v5. This is the theoretical maximum.
+4.  **Final Champion:** Select the best scoring submission on the leaderboard.  

@@ -32,12 +32,15 @@ All complex models (Regime Blend, Vector Blend, RNN) plateau around 0.356, sligh
 
 ### 5. TSMixer (The New Frontier)
 We have a strong pseudo-LB (0.3837) but weak LB (0.3374) on v2 (Raw+Delta).
-- **Status:** v4 Hybrid (Raw+Delta+Stats) achieves Pseudo-LB **0.3957** (Matches MLP!).
+- **Status:**
+    - v4 Hybrid (Raw+Delta+Stats): Pseudo-LB **0.3957** (Matches MLP). LB **0.3486**.
+    - **v5 Refined (Current Best):** Input Stem + RevIN-Lite + AdamW.
+        - **Hard Split CV:** **0.370** (vs MLP 0.357).
+        - **Full Train R²:** **0.425**.
+        - **Verdict:** Strongest single model locally. Solved the "Hard Sequence" failure mode.
 - **Diagnosis:** Likely suffering from **distribution shift** (trained on specific price levels).
-- **Action Plan (Tier 1 - Do Next):**
-    1.  **Input Stem (1x1 Conv):** Compress 192 hybrid features -> 64/96 dims before mixing. Reduces params, forces feature extraction.
-    2.  **Robust RevIN-Lite:** Implement Smoothed RevIN (mix window stats with global stats) to handle distribution shift without destabilizing on short windows.
-    3.  **Training Recipe:** Add EMA (Exponential Moving Average) and AdamW to stabilize generalization.
+- **Next Steps (v30):**
+    - **Final Ensemble:** Blend TSMixer v5 with MLP v19/v21.
 
 **Tier 2 (If Tier 1 fails):**
 - **Ensemble Distillation:** Train a small TSMixer to mimic the large Triplet Ensemble.
@@ -46,10 +49,14 @@ We have a strong pseudo-LB (0.3837) but weak LB (0.3374) on v2 (Raw+Delta).
 ---
 
 ## Tested / Deprioritized
+- **v30 Final Grand Ensemble (Planned)**
+  - Blend: MLP v19 + MLP v21 + TSMixer v5 Refined.
+- **v29 TSMixer v5 Refined**
+  - Status: Ready for Submission. Strongest local metrics.
 - **v28 Hybrid Ensemble (MLP + MLP + TSMixer v4)**
-  - Status: Ready for Submission (Next Day). Pseudo-LB ~0.40+.
+  - Status: Ready for Submission. Safe bet.
 - **v27 Triplet Blend (MLP Level + MLP Resid + TSMixer v2)**
-  - Status: Submitted (Pending Score).
+  - Status: Submitted (-0.0004). Failed due to NaN/Clip issues (fixed in v28/v29).
 - **v26 TSMixer v2 (Raw + Delta)**
   - Status: LB 0.3374. Good baseline, needs RevIN.
 - **v25 Regime-Adaptive Blend**
