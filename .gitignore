@@ -2,10 +2,15 @@
 __pycache__/
 .venv/
 *.pyc
+.DS_Store
+.idea/
 
 # Competition artifacts
 *.zip
-submissions/
+/submissions/
+competition_package/submissions/*
+!competition_package/submissions/
+!competition_package/submissions/README.md
 
 # Large data / model directories (kept out of git)
 competition_package/datasets/
@@ -19,3 +24,5 @@ competition_package/plots_*.png
 /competition_package/check_norm_surge.png
 /competition_package/catboost_optimization_results.csv
 /competition_package/mlp_optuna_results.csv
+/.gemini/settings.json
+/.claude/

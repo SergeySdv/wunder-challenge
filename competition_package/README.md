@@ -1,4 +1,29 @@
-# Welcome to the Wunder Challenge!
+# Wunder Challenge: Market State Forecasting
+
+This package contains my work for the Wunder market-state forecasting challenge.
+The task is to predict the next anonymized market-state vector from previous states in independent sequences.
+
+The repository keeps the original streaming submission interface, local validation, feature experiments, training scripts, submission variants, and experiment notes.
+
+Best documented leaderboard result: **LB 0.3571** using a level + residual MLP blend.
+
+## Repository Map
+
+- `solution.py` - current streaming submission entry point.
+- `utils.py` - challenge data structures and local scorer.
+- `src/` - reusable feature extraction and model code.
+- `scripts/` - training, validation, diagnostics, and experiment runners.
+- `submissions/` - historical submission entry points.
+- `experiments/` - experiment log and compact result tables.
+- `docs/` - project notes, feature notes, and submission guidance.
+- `eda/` and `outputs/` - exploratory analysis scripts and selected generated outputs.
+- `examples/simple/` - original minimal baseline.
+
+## Challenge Brief
+
+The section below documents the task, data format, scoring, and submission interface used in the challenge.
+
+### Original Setup
 2025-09-15
 
 We're excited to have you here. This is a machine learning competition where you'll build a model to predict the future of market states from their past. It’s a tough challenge, but a very rewarding one. Let's get started!
