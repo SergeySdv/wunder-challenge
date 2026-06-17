@@ -1,10 +1,10 @@
 # Market State Forecasting Challenge
 
 This repository contains my work on a market-state sequence forecasting challenge.
-The task is to predict the next market state vector from previous states using anonymized numeric features.
+The task, evaluator, streaming submission interface, and R2 leaderboard metric were provided by the competition.
 
 I experimented with lag-based MLPs, residual blends, CatBoost, LSTM/GRU baselines, and early Mamba/SSM-style models.
-The project includes local validation, streaming-style inference, submission packaging, and R2-based evaluation.
+The goal was to maximize leaderboard score under the provided step-by-step inference protocol.
 
 Best documented result: LB 0.3571 for the level + residual blend.
 
@@ -18,4 +18,4 @@ Best documented result: LB 0.3571 for the level + residual blend.
 
 ## Repository Focus
 
-This is a research-oriented project rather than a production trading system. The main focus is practical market-data experimentation: sequence validation, noisy time-series forecasting, reproducible model comparison, and competition-style inference packaging.
+This is a competition project rather than a production trading system. The main focus is practical score optimization on anonymized market-state sequences: validation design, model comparison, streaming inference, and submission packaging.

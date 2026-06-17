@@ -1,9 +1,10 @@
 # Wunder Challenge: Market State Forecasting
 
 This package contains my work for the Wunder market-state forecasting challenge.
-The task is to predict the next anonymized market-state vector from previous states in independent sequences.
+The task, evaluator, streaming submission interface, and R2 leaderboard metric were provided by the competition.
 
-The repository keeps the original streaming submission interface, local validation, feature experiments, training scripts, submission variants, and experiment notes.
+The objective was straightforward: maximize the leaderboard score by predicting the next anonymized market-state vector from previous states in independent sequences.
+The repository keeps the original challenge interface together with my local validation, feature experiments, training scripts, submission variants, and experiment notes.
 
 Best documented leaderboard result: **LB 0.3571** using a level + residual MLP blend.
 
@@ -19,9 +20,9 @@ Best documented leaderboard result: **LB 0.3571** using a level + residual MLP b
 - `eda/` and `outputs/` - exploratory analysis scripts and selected generated outputs.
 - `examples/simple/` - original minimal baseline.
 
-## Challenge Brief
+## Competition Brief
 
-The section below documents the task, data format, scoring, and submission interface used in the challenge.
+The section below documents the original task, data format, scoring, and submission interface used in the competition.
 
 ### Original Setup
 2025-09-15
