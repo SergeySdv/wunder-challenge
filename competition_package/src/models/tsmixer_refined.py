@@ -3,6 +3,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .torchtsmixer.tsmixer import TSMixer
 
+def drop_path(x, drop_prob: float = 0.0, training: bool = False):
+    if drop_prob == 0.0 or not training:
+        return x
+    keep_prob = 1.0 - drop_prob
+    shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+    random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
+    random_tensor.floor_()
+    return x.div(keep_prob) * random_tensor
+
 class RevINLite(nn.Module):
     """
     Robust Reversible Instance Normalization for short windows.
@@ -68,11 +77,13 @@ class TSMixerRefined(nn.Module):
                  d_model=64, 
                  num_blocks=4, 
                  dropout=0.1,
-                 alpha=0.5):
+                 alpha=0.5,
+                 drop_path: float = 0.0):
         super().__init__()
         
         # 1. Robust Normalization
         self.revin = RevINLite(input_channels, global_mean, global_std, alpha=alpha)
+        self.drop_path_rate = drop_path
         
         # 2. Input Stem (Compression)
         # Projects high-dim hybrid features (192) to dense d_model (64)
@@ -110,6 +121,7 @@ class TSMixerRefined(nn.Module):
         
         # Mixer: [B, L, d_model] -> [B, T, d_model]
         x = self.backbone(x)
+        x = drop_path(x, self.drop_path_rate, self.training)
         
         # Head: [B, T, d_model] -> [B, T, 32]
         x = self.head(x)

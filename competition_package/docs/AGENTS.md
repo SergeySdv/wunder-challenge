@@ -64,6 +64,7 @@ The idea: before doing anything non‑trivial, the agent should skim these files
 - `docs/SOTA_IDEAS_STORE.md`
   - Parking lot of high-ROI modeling ideas, status, and next steps.
   - Use this to avoid repeating recent experiments and to pick the next candidate.
+  - Contains the **Agent Experiment Protocol** for autonomous runs: pick one hypothesis, state the mechanism, smoke test, validate, log, and update idea status.
 
 - `examples/simple/README.md`  
   - Description of the simple moving‑average example solution.  
@@ -172,11 +173,12 @@ When asked to improve or modify the solution:
 
 1. Skim the docs listed above to recall current models and scores.  
 2. Check `experiments/EXPERIMENT_LOG.md` to avoid duplicating old experiments.  
-3. If changing features or the model:
+3. Pick one active hypothesis from `docs/SOTA_IDEAS_STORE.md` and follow its Agent Experiment Protocol.  
+4. If changing features or the model:
    - Update `scripts/train_model.py` (offline training) and retrain.  
    - Mirror the same feature logic inside `PredictionModel` in `solution.py`.  
    - Run `python solution.py` to ensure streaming behavior and runtime are acceptable.  
-4. If adding a new experiment:
+5. If adding a new experiment:
    - Append a short, clear entry to `experiments/EXPERIMENT_LOG.md` with settings and results.  
    - Update `docs/PLAN.md` or `docs/TEACHING_NOTES.md` if the change is conceptual or structural.  
 

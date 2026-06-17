@@ -969,8 +969,8 @@ This log should be updated whenever a new experiment is run (Tsururu configs, ne
   - Switch Alpha dynamically: Alpha=1.0 (Level) for High Vol, Alpha=0.3 (Residual) for Trending.
 - Result:
   - **Leaderboard:** **0.3565**.
-- Takeaways:
-  - Failed to beat scalar blend. Implies that "Normal" regime dominates test set or regime shifts are too subtle/different in test data.
+  - Takeaways:
+    - Failed to beat scalar blend. Implies that "Normal" regime dominates test set or regime shifts are too subtle/different in test data.
 
 ### 2.32 TSMixer v5 Refined (RevIN-Lite + Stem)
 
@@ -986,11 +986,29 @@ This log should be updated whenever a new experiment is run (Tsururu configs, ne
   - **Full Train Streaming R²:** **0.4249**.
 - Status:
   - **Zipped as `submission_tsmixer_v5_refined.zip`.** Strongest single-model candidate.
+  - **Leaderboard Score:** 0.3617. (New SOTA Single Model).
+
+### 2.33 Grand Blend v30 (TSMixer v5 + MLP v19)
+
+- Files:
+  - `solution.py` (blending logic).
+  - `models/tsmixer_v5_refined_fold*_fp16.pth`
+  - `models/lag_mlp_fold*_fp16.pth`
+- Concept:
+  - **Ensemble:** 70% TSMixer v5 Refined (Best Single) + 30% MLP v19 (Robust Baseline).
+  - **Optimization:** Dropped the "Residual MLP" (v21) due to shape mismatches and lower performance contribution.
+  - **Compression:** All models quantized to **FP16** to fit 15 models into <20MB. Final zip size ~6.1MB.
+- Results:
+  - **Local Streaming R²:** 0.4223.
+  - **Leaderboard Score:** **0.3642**.
+- Takeaways:
+  - Ensembling the Transformer-based mixer with the simple MLP provided a robust **+0.0025** boost over the single TSMixer.
+  - This confirms that structural diversity (Mixing vs MLP) helps generalization.
+  - Rank ~290.
 
 ---
 
 ## 3. Current Understanding
-
 
 ## v10 Robust Ensemble (Winsorization + 5-Fold CV)
 - Pseudo-LB Score: **0.39628** (Held out 10% seqs)

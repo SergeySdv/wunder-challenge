@@ -2,6 +2,39 @@
 
 This note tracks high‑ROI modeling ideas, their status, and implementation details tailored to our constraints (streaming inference, CPU-only, <60 min).
 
+## Agent Experiment Protocol
+
+Use this protocol for autonomous research runs. The goal is to keep each run focused, reproducible, and easy to judge after the fact.
+
+1. **Pick one active hypothesis.**
+   - Choose a single idea from this file, or add a new clearly scoped hypothesis before starting.
+   - Do not mix unrelated ideas in one experiment unless the experiment is explicitly about their interaction.
+
+2. **Write the expected mechanism before editing.**
+   - State why the idea should improve generalization, runtime, robustness, or simplicity.
+   - Name the baseline it must beat.
+
+3. **Run the smallest useful smoke test first.**
+   - Prefer subset or single-fold checks before full retraining.
+   - Stop early if shapes, runtime, packaging constraints, or streaming behavior are already broken.
+
+4. **Run the agreed validation path.**
+   - Use sequence-level validation, hard split, pseudo-LB, or full streaming evaluation as appropriate for the idea.
+   - Treat train-file R² as supporting evidence only, not a keep/discard decision by itself.
+
+5. **Compare against the current reference.**
+   - Stable fallback: v19 lag-MLP, LB 0.3563.
+   - Current best: level + residual blend, LB 0.3571.
+   - A more complex change needs a meaningful validation or leaderboard gain; small gains from simpler code are still valuable.
+
+6. **Log the result in `experiments/EXPERIMENT_LOG.md`.**
+   - Include hypothesis, changed files, command(s), metric(s), runtime if relevant, and final decision.
+   - Use one of: `keep`, `archive`, `discard`, or `crash`.
+
+7. **Update this ideas store.**
+   - If the experiment succeeds, promote the idea and record the next follow-up.
+   - If it fails, mark it completed/deprioritized with the reason so agents do not retry it blindly.
+
 ## Baseline / Context
 - **Stable fallback:** v19 lag-MLP (engineered v6 features, 10 lags). LB 0.3563.
 - **Current best:** Level + residual blend (α=0.6) on v19 features. LB 0.3571.
